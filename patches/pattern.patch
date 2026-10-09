@@ -1,0 +1,14 @@
+--- a/xmnpu/relay/pattern.py
++++ b/xmnpu/relay/pattern.py
+@@ -468,7 +468,10 @@
+         if isinstance(out_zero_point, tvm.relay.Constant):
+             out_zero_point = out_zero_point.data.numpy().item()
+ 
+-        out = func(data, in_scale, out_scale, in_zero_point, out_zero_point)
++        # npu_poc patch: the LUT builders (tanh/sigmoid/silu/mish) need the output
++        # dtype, which the shipped callback never passed
++        out = func(data, in_scale, out_scale, in_zero_point, out_zero_point,
++                   pre.checked_type.dtype)
+         return out
+ 
+ class XMScaleRelayRewrite(DFPatternCallback):

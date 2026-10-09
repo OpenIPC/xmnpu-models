@@ -1,0 +1,18 @@
+# coco128 images (train2017 ids). "cal" ones calibrate the quantizer; "eval"
+# ones, disjoint from them, check every built model against FP32.
+cal   000000000443  cat
+cal   000000000599  cat
+cal   000000000042  dog
+cal   000000000307  dog, car
+cal   000000000074  dog, bicycle, person
+cal   000000000540  bus, truck, car
+cal   000000000086  motorcycle, person
+cal   000000000036  person
+eval  000000000575  cat
+eval  000000000650  cat, car
+eval  000000000109  dog, person
+eval  000000000394  dog
+eval  000000000581  dog
+eval  000000000260  bus, car
+eval  000000000064  truck, car
+eval  000000000529  motorcycle

@@ -1,0 +1,77 @@
+--- a/tvm/relay/quantize/_calibrate.py
++++ b/tvm/relay/quantize/_calibrate.py
+@@ -118,10 +118,12 @@
+     cfg = quantize.current_qconfig()
+     chunk_by = cfg.calibrate_chunk_by
+     scales = []
++    minmax = []
+     for samples in collect_stats(mod, dataset, chunk_by):
+         logging.info("finding threshold with emd for calibration...")
+         with mp.Pool() as pool:
+             scales += list(pool.map(_find_scale_by_emd, samples))
++        minmax.extend((float(a.max()), float(a.min())) for a in samples)
+ 
+     def func(_):
+         scale = scales[func.scale_idx]
+@@ -129,16 +131,19 @@
+         return scale
+ 
+     func.scale_idx = 0
++    func.minmax = minmax
+     return func
+ 
+ def _xm_kl_scale_input(mod, dataset):
+     cfg = quantize.current_qconfig()
+     chunk_by = cfg.calibrate_chunk_by
+     scales = []
++    minmax = []
+     for samples in collect_stats(mod, dataset, chunk_by):
+         logging.info("finding threshold with kl for calibration...")
+         with mp.Pool() as pool:
+             scales += list(pool.map(_find_scale_by_kl_tengine_input_asymme, samples))
++        minmax.extend((float(a.max()), float(a.min())) for a in samples)
+             #for arr in samples:
+             #    scales += list(_find_scale_by_kl_tengine_input_asymme(arr))
+ 
+@@ -148,6 +153,7 @@
+         return scale
+ 
+     func.scale_idx = 0
++    func.minmax = minmax
+     return func
+ 
+ def _find_scale_by_percentile(arr, percentile=0.99999):
+@@ -226,6 +232,19 @@
+     const_params = {}
+     const_params_nega = {}
+ 
++    # XM_CALIB_OUTPUT_MINMAX=<floor>: graph outputs keep their observed range, with
++    # the maximum at least <floor>, instead of the calibrated threshold, which puts
++    # a detector's rare positive class logits at ~0 (scores capped near 0.5).
++    out_sqs = []
++    if os.environ.get("XM_CALIB_OUTPUT_MINMAX"):
++        body = mod["main"].body
++        for f in (body.fields if isinstance(body, _expr.Tuple) else [body]):
++            while isinstance(f, _expr.Call) and f.op != quantize_op and len(f.args):
++                f = f.args[0]
++            if isinstance(f, _expr.Call) and f.op == quantize_op:
++                out_sqs.append(f)
++        print("XM_CALIB_OUTPUT_MINMAX: %d output(s)" % len(out_sqs))
++
+     def visit_func(expr):
+         """visitor function for traverse"""
+         if isinstance(expr, _expr.Call) and expr.op == quantize_op:
+@@ -251,6 +270,13 @@
+             else:
+                 # scale choose mode for frontend net has a split layer.
+                 scale_pack = input_scale_func(expr)
++                if any(expr.same_as(o) for o in out_sqs) and hasattr(input_scale_func, "minmax"):
++                    kl = scale_pack
++                    mx, mn = input_scale_func.minmax[input_scale_func.scale_idx - 1]
++                    # the value is a floor for the maximum: a calibration set with no
++                    # confident detection never shows the range a real one needs
++                    scale_pack = (max(mx, float(os.environ["XM_CALIB_OUTPUT_MINMAX"])), mn)
++                    print("output range: kl [%g, %g] -> minmax [%g, %g]" % (kl[0], kl[1], scale_pack[0], scale_pack[1]))
+                 scale = scale_pack[0]
+                 const_params_nega[ndom_scale] = _make_const(scale_pack[1] / valid_range)
+ 

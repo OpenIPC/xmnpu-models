@@ -1,0 +1,6 @@
+# One model per line, built by scripts/build.sh and published by the release
+# workflow as <name>.xmm.
+#
+# name     weights      H    W    COCO classes kept, in class-channel order
+yolov8n    yolov8n.pt   384  640  0,1,2,3,5,7,15,16
+yolov8s    yolov8s.pt   384  640  0,1,2,3,5,7,15,16

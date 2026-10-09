@@ -1,0 +1,30 @@
+--- a/tvm/relay/quantize/divergence.py
++++ b/tvm/relay/quantize/divergence.py
+@@ -149,6 +149,11 @@
+     min_val = np.min(arr)
+     max_val = np.max(arr)
+     thres = max(abs(min_val), abs(max_val))
++    # npu_poc patch: a tensor that is constant over the calibration set (e.g. all
++    # zero) has no histogram range; give it a tiny symmetric threshold.
++    if not thres > 0 or max_val == min_val:
++        t = float(thres) if thres > 0 else 1e-5
++        return t, -t
+     
+     def get_pointer(arr, ctypes_type):
+         ptr = arr.ctypes.data_as(ctypes.POINTER(ctypes_type))
+@@ -183,9 +188,12 @@
+             else:
+                 arr_posi = np.clip(arr, 0, max_val)
+                 arr_nega = arr
+-            # for positive
+-            hist, hist_edges = np.histogram(arr_posi, bins=num_bins, range=(-max_val, max_val))
+-            thresh = get_emd_thresh(hist, hist_edges, num_bins, num_quantized_bins)
++            # for positive (npu_poc patch: a never-positive tensor has no range)
++            if max_val > 0:
++                hist, hist_edges = np.histogram(arr_posi, bins=num_bins, range=(-max_val, max_val))
++                thresh = get_emd_thresh(hist, hist_edges, num_bins, num_quantized_bins)
++            else:
++                thresh = 1e-5
+             # for negative
+             hist, hist_edges = np.histogram(-arr_nega, bins=num_bins, range=(min_val, -min_val))
+             thresh_nega = -get_emd_thresh(hist, hist_edges, num_bins, num_quantized_bins)
