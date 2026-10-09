@@ -43,6 +43,11 @@ export PATH=$venv/bin:$PATH
 # The class maps of a detector are almost all negative over any calibration
 # set; see patches/_calibrate.patch and the README.
 export XM_CALIB_OUTPUT_MINMAX=8
+# XMTVMC writes some of its own host pointers into the .xmm's tensor table --
+# meaningless on the camera, but they make two builds of the same model differ
+# by a few bytes. Without address-space randomisation they are the same every
+# time, so a release can be rebuilt bit for bit.
+xmtvmc() { setarch "$(uname -m)" -R "$venv/bin/xmtvmc" "$@"; }
 
 grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
 	[ -n "$name" ] || continue

@@ -33,7 +33,9 @@ grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
 		"$keep" "$out/onnx/$name.onnx"
 done
 
-docker run --rm -v "$src:/src:ro" -v "$wheels:/wheels:ro" -v "$out:/out" \
+# seccomp=unconfined: the default profile refuses the personality() call that
+# turns address-space randomisation off for XMTVMC (see compile.sh).
+docker run --rm --security-opt seccomp=unconfined -v "$src:/src:ro" -v "$wheels:/wheels:ro" -v "$out:/out" \
 	ubuntu:20.04 bash -c "bash /src/scripts/compile.sh /wheels /out/onnx /out; \
 	rc=\$?; chown -R $(id -u):$(id -g) /out; exit \$rc"
 
