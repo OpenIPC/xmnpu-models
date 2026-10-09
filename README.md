@@ -51,7 +51,10 @@ The steps (`scripts/`): `export.py` writes head-less ONNX, rewriting C2f's
 split as two 1x1 convolutions (TVM 0.7's frontend mis-sizes the ONNX Slice, and
 the quantizer cannot rescale a Split) and cutting the class head down to the
 kept classes; `compile.sh` runs XMTVMC's import, quantize, compile and C-model
-in an `ubuntu:20.04` container; `eval.py` compares int8 with FP32.
+in an `ubuntu:20.04` container; `sanitize.py` zeroes the host pointers XMTVMC
+leaves in each `.xmm` (they follow the build machine's memory layout and mean
+nothing on the camera), so a rebuild of the same commit is bit-identical;
+`eval.py` compares int8 with FP32.
 
 ### The patches
 

@@ -44,9 +44,9 @@ export PATH=$venv/bin:$PATH
 # set; see patches/_calibrate.patch and the README.
 export XM_CALIB_OUTPUT_MINMAX=8
 # XMTVMC writes some of its own host pointers into the .xmm's tensor table --
-# meaningless on the camera, but they make two builds of the same model differ
-# by a few bytes. Without address-space randomisation they are the same every
-# time, so a release can be rebuilt bit for bit.
+# meaningless on the camera, but they follow the build host's memory layout.
+# The main build runs without address-space randomisation and a second one
+# with it; sanitize.py zeroes every byte where the two differ.
 xmtvmc() { setarch "$(uname -m)" -R "$venv/bin/xmtvmc" "$@"; }
 
 grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
@@ -87,5 +87,17 @@ grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
 		mkdir -p eval/$id && mv "$id.jpg.xmnpu_npu.npy" eval/$id/outputs.npy
 		unzip -qo -d eval/$id $name.qnn.xmnpu_npu.zip 'input_data*'
 	done
-	unzip -qo -p $name.qnn.xmnpu_npu.zip neuron_network.xmm > "$out/$name.xmm"
+	unzip -qo -p $name.qnn.xmnpu_npu.zip neuron_network.xmm > a.xmm
+	# The same compile with randomisation on, so every byte that follows the
+	# host's memory layout shows up as a difference for sanitize.py to zero.
+	echo "== $name: second build, for the host-pointer fields"
+	mkdir -p aslr && (cd aslr && cp ../cfg.yaml ../$name.qnn.json ../$name.qnn.params . &&
+		"$venv/bin/xmtvmc" compile --model $name.qnn.json --weight $name.qnn.params \
+			--target xmnpu_npu --config-file cfg.yaml > log.txt 2>&1 &&
+		"$venv/bin/xmtvmc" run --lib $name.qnn.xmnpu_npu.so \
+			--params $name.qnn.xmnpu_npu.so.params --target xmnpu_npu \
+			--input-data "$(ls "$out"/images/eval/*.jpg | head -1)" \
+			--config-file cfg.yaml >> log.txt 2>&1 &&
+		unzip -qo -p $name.qnn.xmnpu_npu.zip neuron_network.xmm > ../b.xmm)
+	python "$src/scripts/sanitize.py" a.xmm b.xmm "$out/$name.xmm"
 done
