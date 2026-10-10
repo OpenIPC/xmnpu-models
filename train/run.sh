@@ -13,6 +13,13 @@ set -euo pipefail
 src=$(cd "$(dirname "$0")/.." && pwd)
 mode=$1 model=$2
 work=${TRAIN_WORK:?} coco=${COCO_DIR:?} uv=${UV:-$HOME/.local/bin/uv}
+# systemd-logind's RemoveIPC (on by default) deletes a user's /dev/shm files
+# when their last session closes -- the dataloader's shared batches included,
+# which stalls training minutes in. A lingering user is never logged out.
+if command -v loginctl >/dev/null &&
+	! loginctl show-user "$(id -un)" -p Linger 2>/dev/null | grep -q yes; then
+	echo "enable lingering first: sudo loginctl enable-linger $(id -un)"; exit 1
+fi
 mkdir -p "$work/cache"
 
 "$uv" venv -q --allow-existing --python 3.12 "$work/venv"
