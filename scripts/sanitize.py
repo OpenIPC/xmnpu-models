@@ -18,7 +18,7 @@
 import struct
 import sys
 
-MAX_FIELDS = 64
+MAX_FIELDS = 256
 
 a = bytearray(open(sys.argv[1], "rb").read())
 b = open(sys.argv[2], "rb").read()

@@ -1,6 +1,11 @@
 # One model per line, built by scripts/build.sh and published by the release
 # workflow as <name>.xmm.
 #
-# name     weights      H    W    COCO classes kept, in class-channel order
-yolov8n    yolov8n.pt   384  640  0,1,2,3,5,7,15,16
-yolov8s    yolov8s.pt   384  640  0,1,2,3,5,7,15,16
+# name     weights               H    W    classes kept, as the checkpoint numbers
+#                                          them, in class-channel order
+#
+# yolov8n is the LeakyReLU fine-tune (train.yml, release yolov8n-lrelu-c8-v1),
+# already cut to the eight classes: 1.7x faster on the NPU than the SiLU
+# model at 45.6 against 46.1 mAP50-95 on them.
+yolov8n    yolov8n-lrelu-c8.pt   384  640  0,1,2,3,4,5,6,7
+yolov8s    yolov8s.pt            384  640  0,1,2,3,5,7,15,16

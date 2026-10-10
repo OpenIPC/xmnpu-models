@@ -15,10 +15,9 @@ import sys
 
 import numpy as np
 import onnxruntime as ort
+from ultralytics import YOLO
 
 PASS_SCORE, PASS_IOU, REPORT_SCORE = 0.5, 0.6, 0.3
-COCO = {0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus",
-        7: "truck", 15: "cat", 16: "dog"}
 
 
 def yuv2rgb(y, vu):
@@ -70,8 +69,9 @@ out = sys.argv[1]
 models = [l.split() for l in open(os.path.join(os.path.dirname(__file__), "..", "models.txt"))
           if l.strip() and not l.startswith("#")]
 report, failed = ["| model | image | FP32 | int8 (NPU C-model) |", "|---|---|---|---|"], False
-for name, _, h, w, keep in models:
-    h, w, names = int(h), int(w), [COCO.get(int(c), c) for c in keep.split(",")]
+for name, weights, h, w, keep in models:
+    labels = YOLO(f"{os.path.dirname(__file__)}/../.cache/{weights}").names
+    h, w, names = int(h), int(w), [labels[int(c)] for c in keep.split(",")]
     sess = ort.InferenceSession(f"{out}/onnx/{name}.onnx")
     fmt = lambda ds: ", ".join(f"{names[int(d[5])]} {d[4]:.2f}" for d in ds) or "-"
     for d in sorted(glob.glob(f"{out}/work/{name}/eval/*")):

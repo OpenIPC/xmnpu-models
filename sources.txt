@@ -2,3 +2,4 @@
 yolov8n.pt   f59b3d833e2ff32e194b5bb8e08d211dc7c5bdf144b90d2c8412c47ccfc83b36  https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8n.pt
 yolov8s.pt   1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a  https://github.com/ultralytics/assets/releases/download/v8.4.0/yolov8s.pt
 coco128.zip  61e5e3028863d8ffc3b81d6a514603954889f0edd5e4b44c4ce60b2da99aeb8e  https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip
+yolov8n-lrelu-c8.pt  243eadf6ef6dd577372c5a6daf365ec595d13f1e61cdd7e77854b6556fd333f2  https://github.com/OpenIPC/xmnpu-models/releases/download/yolov8n-lrelu-c8-v1/yolov8n-lrelu-c8.pt
