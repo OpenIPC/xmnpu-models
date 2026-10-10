@@ -27,18 +27,19 @@ grep -v '^#' "$src/sources.txt" | while read -r file sha url; do
 done
 [ -f "$work/cache/$model.pt" ] || { echo "no $model.pt in sources.txt"; exit 1; }
 
+case $mode in train) out=$(realpath -m "$5") ;; import) out=$(realpath -m "$4") ;; esac
 cd "$work"
 "$py" "$src/train/dataset.py" "$coco" "$work/coco8"
 case $mode in
 train)
-	epochs=$3 batch=$4 out=$5
+	epochs=$3 batch=$4
 	run=$work/runs/$model-lrelu-c8-$(date -u +%Y%m%d-%H%M%S)
 	"$py" "$src/train/init.py" "$work/cache/$model.pt" "$work/init-$model.pt"
 	"$py" "$src/train/fit.py" "$work/init-$model.pt" "$work/coco8/coco8.yaml" \
 		"$epochs" "$batch" "$run"
 	;;
 import)
-	run=$(readlink -f "$3") out=$4
+	run=$(readlink -f "$3")
 	;;
 *)
 	echo "mode is train or import"; exit 2
