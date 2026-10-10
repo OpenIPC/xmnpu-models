@@ -1,0 +1,80 @@
+# Fine-tunes a COCO YOLOv8 for the NPU -- LeakyReLU in place of SiLU, the
+# camera's eight classes -- on the self-hosted GPU runner, and publishes the
+# checkpoint as a release for release.yml to compile. Run by hand only, like
+# release.yml: a checkpoint is never uploaded from a workstation.
+#
+# mode "import" publishes a fine-tune already run on the runner's host (its
+# run directory), after evaluating it here, instead of training another.
+name: train
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: train, or import an existing run
+        type: choice
+        options: [train, import]
+        default: train
+      model:
+        description: COCO model to start from
+        type: choice
+        options: [yolov8n, yolov8s]
+        default: yolov8s
+      epochs:
+        description: Epochs (train)
+        default: "60"
+      batch:
+        description: Batch size (train)
+        default: "64"
+      run_dir:
+        description: Run directory on the runner's host (import)
+        default: ""
+      tag:
+        description: Release tag to create (e.g. yolov8s-lrelu-c8-v1). Must not exist yet.
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: [self-hosted, spark, gpu]
+    timeout-minutes: 4320
+    env:
+      COCO_DIR: /home/dima/datasets/coco
+      TRAIN_WORK: /home/dima/xmnpu-train
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fine-tune or import
+        env:
+          MODE: ${{ inputs.mode }}
+          MODEL: ${{ inputs.model }}
+          EPOCHS: ${{ inputs.epochs }}
+          BATCH: ${{ inputs.batch }}
+          RUN_DIR: ${{ inputs.run_dir }}
+        run: |
+          rm -rf out
+          if [ "$MODE" = import ]; then
+            bash train/run.sh import "$MODEL" "$RUN_DIR" out
+          else
+            bash train/run.sh train "$MODEL" "$EPOCHS" "$BATCH" out
+          fi
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          {
+            echo "${{ inputs.mode }} of ${{ inputs.model }} by run ${{ github.run_id }} from ${{ github.sha }}."
+            echo
+            cat out/eval.md
+            echo
+            echo "The reference column is the stock SiLU ${{ inputs.model }} (80 classes) on the same images."
+          } > notes.md
+          bash scripts/publish.sh "$TAG" notes.md out/*
