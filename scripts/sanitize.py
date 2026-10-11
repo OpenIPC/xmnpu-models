@@ -1,64 +1,60 @@
 # sanitize.py <a.xmm> <b.xmm> <out.xmm>
 #
-# XMTVMC writes host memory into the tensor table at the end of an .xmm: whole
-# 8-byte host pointers, and 4-byte struct padding left uninitialised beside a
-# 32-bit field, which holds the stale upper half of one. Neither means
-# anything on the camera, but both follow the build host's memory layout, so
-# they make every build different.
+# XMTVMC copies some of its own host pointers into the .xmm -- 8-byte ones
+# and the low halves of others -- in the tensor table at the end of the file.
+# They mean nothing on the camera (zeroed, the model is still bit-exact with
+# its C-model golden on the NPU) but they make every build different, since
+# they follow the build host's memory layout.
 #
 # <a> and <b> are the same model built twice with different address layouts
-# (compile.sh builds <b> with address-space randomisation on). Two passes,
-# over 4-byte words, written to <out> from <a>:
-#
-#   1. every word that differs between the builds is zeroed -- that word
-#      only: the 32-bit value beside a word of padding is real and the same in
-#      both, and stays;
-#   2. from the first difference to the end of the file -- the tensor table --
-#      every word whose value is the upper half of an x86-64 user-space stack
-#      (0x7ff0-0x7fff) or heap (0x5500-0x56ff) address is zeroed too. Under
-#      randomisation a stack address's upper half takes only a few values, so
-#      the two builds often agree on one and pass 1 cannot see it; the v4
-#      release kept three that way. The same values occur in weights, which is
-#      why this pass stops at the table.
+# (compile.sh builds <b> with address-space randomisation on). Every byte that
+# differs is part of such a pointer: each run of them is widened to its whole
+# field -- 8 bytes when that holds a user-space x86-64 pointer in both files,
+# otherwise the aligned 32-bit words -- and zeroed in <a>, written to <out>.
 #
 # Refuses, rather than zeroing anything else, when the builds differ in a way
-# host memory cannot explain: different sizes, a run of differing bytes longer
-# than a pointer, or more than MAX_WORDS words.
+# a pointer cannot explain: different sizes, a run longer than a pointer, or
+# more than MAX_FIELDS fields.
 import struct
 import sys
 
-MAX_WORDS = 512
+MAX_FIELDS = 256
 
 a = bytearray(open(sys.argv[1], "rb").read())
 b = open(sys.argv[2], "rb").read()
 if len(a) != len(b):
     sys.exit(f"sanitize: builds differ in size ({len(a)} and {len(b)})")
 
-diff = [i for i in range(len(a)) if a[i] != b[i]]
-if not diff:
-    sys.exit("sanitize: the two builds are identical; the second was not randomised")
-run_lo = run_hi = diff[0]
-for i in diff[1:] + [None]:
-    if i is not None and i == run_hi + 1:
-        run_hi = i
-        continue
-    if run_hi - run_lo >= 8:
-        sys.exit(f"sanitize: {run_hi - run_lo + 1} differing bytes at {run_lo:#x}, "
-                 "longer than a pointer")
-    if i is not None:
-        run_lo = run_hi = i
 
-differing = {i - i % 4 for i in diff}
-table = diff[0] - diff[0] % 4
-upper_half = {w for w in range(table, len(a) - 3, 4)
-              if w not in differing and
-              (0x7ff0 <= struct.unpack_from("<I", a, w)[0] <= 0x7fff or
-               0x5500 <= struct.unpack_from("<I", a, w)[0] <= 0x56ff)}
-words = differing | upper_half
-if len(words) > MAX_WORDS:
-    sys.exit(f"sanitize: {len(words)} words to zero, more than host memory explains")
-for w in words:
-    a[w:w + 4] = bytes(4)
+def user_ptr(buf, off):
+    if off < 0 or off + 8 > len(buf):
+        return False
+    v = struct.unpack_from("<Q", buf, off)[0]
+    return 0x1000 <= v < 0x800000000000 and v >> 40 != 0
+
+
+diff = [i for i in range(len(a)) if a[i] != b[i]]
+runs = []
+for i in diff:
+    if runs and i <= runs[-1][1] + 1:
+        runs[-1][1] = i
+    else:
+        runs.append([i, i])
+fields = set()
+for lo, hi in runs:
+    if hi - lo >= 8:
+        sys.exit(f"sanitize: {hi - lo + 1} differing bytes at {lo:#x}, longer than a pointer")
+    starts = [s for s in range(hi - 7, lo + 1)
+              if s % 4 == 0 and user_ptr(a, s) and user_ptr(b, s)]
+    if starts:
+        fields.add((starts[0], 8))
+    else:
+        for w in range(lo - lo % 4, hi + 1, 4):
+            fields.add((w, 4))
+if len(fields) > MAX_FIELDS:
+    sys.exit(f"sanitize: {len(fields)} differing fields, more than pointers explain")
+for off, size in fields:
+    a[off:off + size] = bytes(size)
 open(sys.argv[3], "wb").write(a)
-print(f"sanitize: zeroed {len(differing)} differing words and "
-      f"{len(upper_half)} coincident pointer halves")
+print(f"sanitize: zeroed {len(fields)} host-pointer fields "
+      f"({sum(s for _, s in fields)} bytes)")
