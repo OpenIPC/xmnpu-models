@@ -16,30 +16,7 @@ src=$(cd "$(dirname "$0")/.." && pwd)
 wheels=$(readlink -f "$1") onnx=$(readlink -f "$2") out=$(readlink -f "$3")
 mkdir -p "$out"
 
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends python3.8 python3.8-venv \
-	libpython3.8 libhdf5-103 libtinfo5 libgl1 libglib2.0-0 libgomp1 \
-	g++ patch unzip ca-certificates >/dev/null
-
-venv=/opt/xmtvmc
-python3.8 -m venv $venv
-$venv/bin/pip install -q --upgrade pip==24.0
-$venv/bin/pip install -q -r "$src/requirements-xmtvmc.txt"
-$venv/bin/pip install -q --no-deps "$wheels"/caffe-1.0-py3-none-any.whl \
-	"$wheels"/tvm_base-1.0-py3-none-any.whl "$wheels"/xmtvmc-1.0-py3-none-any.whl
-sp=$($venv/bin/python -c 'import site; print(site.getsitepackages()[0])')
-for p in "$src"/patches/*.patch; do patch -s -d "$sp" -p1 < "$p"; done
-
-# Ubuntu names its serial HDF5 libhdf5_serial*; caffe was linked against the
-# upstream names. xmnpu looks for its libraries in <venv>/lib/build, where the
-# SDK's install.sh would have copied them.
-extra=$venv/lib/extra && mkdir -p $extra
-ln -sf /usr/lib/x86_64-linux-gnu/libhdf5_serial.so.103 $extra/libhdf5.so.103
-ln -sf /usr/lib/x86_64-linux-gnu/libhdf5_serial_hl.so.100 $extra/libhdf5_hl.so.100
-mkdir -p $venv/lib/build && ln -sf "$sp"/xmnpu/*.so $venv/lib/build/
-export LD_LIBRARY_PATH=$sp/xmnpu:$sp/caffe/lib:$extra
-export PATH=$venv/bin:$PATH
+source "$src/scripts/xmtvmc-env.sh" "$wheels"
 # The class maps of a detector are almost all negative over any calibration
 # set; see patches/_calibrate.patch and the README.
 export XM_CALIB_OUTPUT_MINMAX=8
@@ -88,6 +65,14 @@ grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
 		unzip -qo -d eval/$id $name.qnn.xmnpu_npu.zip 'input_data*'
 	done
 	unzip -qo -p $name.qnn.xmnpu_npu.zip neuron_network.xmm > a.xmm
+	# The same quantized graph built for x86: its outputs are bit-identical
+	# to the C-model's at a fraction of the cost, which is what lets
+	# simulate.sh run it over all of COCO val2017 for the presets.
+	xmtvmc compile --model $name.qnn.json --weight $name.qnn.params \
+		--target xmnpu_x86 --config-file cfg.yaml >> log.txt 2>&1
+	"$venv/bin/python" "$src/scripts/check_x86.py" $name.qnn.xmnpu_x86.so eval
+	cp $name.qnn.xmnpu_x86.so "$out/$name.x86.so"
+	cp $name.qnn.xmnpu_x86.so.params "$out/$name.x86.so.params"
 	# The same compile with randomisation on, so every byte that follows the
 	# host's memory layout shows up as a difference for sanitize.py to zero.
 	echo "== $name: second build, for the host-pointer fields"
