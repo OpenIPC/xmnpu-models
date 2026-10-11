@@ -24,7 +24,7 @@ that is wrong does not fail to build: it ships, and cameras quietly detect worse
 Prioritise, in order:
 
 1. Reproducibility. A build of one commit must produce the same bytes on any host:
-   every input pinned by URL and sha256 (sources.txt, wheels/SHA256SUMS),
+   every input pinned by URL and sha256 (sources.txt, coco.txt, wheels/SHA256SUMS),
    no network fetch of an unpinned or floating resource, and nothing from the build
    host's memory layout left in a .xmm (scripts/sanitize.py's job). A change that could
    alter a published model must say how it was checked to reproduce.
