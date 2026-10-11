@@ -35,6 +35,106 @@ jobs:
       - name: Build
         run: bash scripts/build.sh wheels out
 
+      - name: Keep for the points and publish jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: |
+            out/*.xmm
+            out/*.x86.so
+            out/*.x86.so.params
+            out/eval.md
+          retention-days: 3
+
+  # The presets' operating points: each model's int8 detections on all of COCO
+  # val2017, from its xmnpu_x86 build (bit-identical to the NPU), in shards.
+  points:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        model: [yolov8n, yolov8s]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -q -r requirements-points.txt
+
+      - uses: actions/cache@v4
+        with:
+          path: .cache/coco
+          key: coco-${{ hashFiles('coco.txt') }}
+
+      - name: COCO val2017, as the camera's frames
+        run: |
+          bash scripts/fetch.sh coco.txt .cache/coco
+          unzip -qo -d coco .cache/coco/val2017.zip
+          python3 scripts/prep_nv21.py coco/val2017 nv21
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: out
+
+      - name: Simulate
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -v "$PWD/wheels:/wheels:ro" -v "$PWD/nv21:/nv21:ro" \
+            -v "$PWD/out:/out" ubuntu:20.04 bash -c \
+            "bash /src/scripts/simulate.sh /wheels /out/${{ matrix.model }}.x86.so /nv21 \
+            /out/dets.txt ${{ matrix.shard }} 8; rc=\$?; chown -R $(id -u):$(id -g) /out; exit \$rc"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dets-${{ matrix.model }}-${{ matrix.shard }}
+          path: out/dets.txt
+          retention-days: 3
+
+  publish:
+    needs: [build, points]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install -q -r requirements-points.txt
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: out
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dets-*
+          path: dets
+
+      - name: Operating points
+        run: |
+          bash scripts/fetch.sh coco.txt .cache/coco
+          unzip -qo -d coco .cache/coco/annotations_trainval2017.zip annotations/instances_val2017.json
+          : > out/points.md
+          grep -v '^#' models.txt | while read -r name _; do
+            [ -n "$name" ] || continue
+            cat dets/dets-$name-*/dets.txt > dets-$name.txt
+            # Every shard says how many frames it ran; a short total is a
+            # shard that did not, which would skew every threshold.
+            n=$(awk '$1 == "#" && $2 == "frames" { t += $3 } END { print t + 0 }' dets-$name.txt)
+            [ "$n" -eq 5000 ] || { echo "$name: $n of 5000 frames simulated"; exit 1; }
+            python3 scripts/operating_points.py coco/annotations/instances_val2017.json \
+              dets-$name.txt out/$name.json out/$name.points.md
+            { echo "### $name"; echo; cat out/$name.points.md; echo; } >> out/points.md
+          done
+          cd out && sha256sum ./*.xmm ./*.json | sed 's# \./# #' > SHA256SUMS && cat SHA256SUMS
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,6 +146,11 @@ jobs:
             echo "int8 (NPU C-model) against FP32 on the eval images:"
             echo
             cat out/eval.md
+            echo
+            echo "What each preset of majestic's object detection gets from these models"
+            echo "(\`<model>.json\`, installed beside the model), int8 on COCO val2017:"
+            echo
+            cat out/points.md
           } > notes.md
           gh release create "$TAG" --target "${{ github.sha }}" --title "$TAG" \
-            --notes-file notes.md out/*.xmm out/SHA256SUMS out/eval.md
+            --notes-file notes.md out/*.xmm out/*.json out/SHA256SUMS out/eval.md out/points.md
