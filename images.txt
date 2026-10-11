@@ -1,5 +1,7 @@
 # coco128 images (train2017 ids). "cal" ones calibrate the quantizer; "eval"
-# ones, disjoint from them, check every built model against FP32.
+# ones, disjoint from them, check every built model against FP32. 24 calibrate:
+# with 8, the LeakyReLU yolov8s lost a crowd's people in int8 (FP32 0.57, 0.54,
+# 0.53; int8 0.37) and the release gate refused it. Peak memory is 9.1 GB.
 cal   000000000443  cat
 cal   000000000599  cat
 cal   000000000042  dog
@@ -8,6 +10,22 @@ cal   000000000074  dog, bicycle, person
 cal   000000000540  bus, truck, car
 cal   000000000086  motorcycle, person
 cal   000000000036  person
+cal   000000000049  person
+cal   000000000061  person
+cal   000000000071  car, truck
+cal   000000000073  motorcycle
+cal   000000000094  car, truck
+cal   000000000110  person
+cal   000000000127  person
+cal   000000000149  car, person
+cal   000000000192  person
+cal   000000000247  car
+cal   000000000257  person, truck
+cal   000000000294  person
+cal   000000000309  dog
+cal   000000000315  person
+cal   000000000322  person
+cal   000000000326  person
 eval  000000000575  cat
 eval  000000000650  cat, car
 eval  000000000109  dog, person
