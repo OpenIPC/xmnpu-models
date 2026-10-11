@@ -1,7 +1,10 @@
 # Merge gate for the Qodo code-review agent.
 #
 # Copied from OpenIPC/firmware's qodo-gate.yml (itself from OpenIPC/devourer),
-# which have been through the failure modes documented below. Keep them in
+# which have been through the failure modes documented below, with three fixes
+# found reviewing the copy: the bot is matched by exact login and account type,
+# not prefix; every unresolved thread blocks, not only those still carrying a
+# bot comment; and the sweep lists more than the default 20 runs. Keep them in
 # sync when any is fixed.
 #
 # Why: branch protection's "require conversation resolution" only blocks
@@ -83,7 +86,8 @@ jobs:
     if: >-
       github.event_name != 'issue_comment' ||
       (github.event.issue.pull_request &&
-       startsWith(github.event.comment.user.login, 'qodo-free-for-open-source-projects') &&
+       github.event.comment.user.login == 'qodo-free-for-open-source-projects[bot]' &&
+       github.event.comment.user.type == 'Bot' &&
        contains(github.event.comment.body, 'Code Review by Qodo'))
     steps:
       - name: Require a Qodo review with all its threads resolved
@@ -135,10 +139,12 @@ jobs:
           # review is the OLDEST — exactly what a last-100 window loses
           # first. --paginate applies --jq per page, so emit ids and count
           # lines. REST spells the bot login with a [bot] suffix, unlike
-          # GraphQL, so match on the prefix.
+          # GraphQL. Matched exactly, and on the account type: a prefix match
+          # would let any account named qodo-free-for-open-source-projects...
+          # pass the gate.
           reviewed=$(gh api "repos/$REPO_OWNER/$REPO_NAME/pulls/$PR/reviews" \
             --paginate --jq ".[]
-              | select(.user.login | startswith(\"$BOT\"))
+              | select(.user.login == \"$BOT[bot]\" and .user.type == \"Bot\")
               | .id" | wc -l)
 
           # Match the review header specifically, NOT merely "a comment by the
@@ -149,7 +155,7 @@ jobs:
           # the agent never actually reviewed.
           commented=$(gh api "repos/$REPO_OWNER/$REPO_NAME/issues/$PR/comments" \
             --paginate --jq ".[]
-              | select(.user.login | startswith(\"$BOT\"))
+              | select(.user.login == \"$BOT[bot]\" and .user.type == \"Bot\")
               | select(.body | test(\"Code Review by Qodo\"; \"i\"))
               | .id" | wc -l)
 
@@ -176,7 +182,7 @@ jobs:
           fi
           echo "review found: $reviewed review object(s), $commented review comment(s)"
 
-          # Unresolved Qodo threads, paginated (a long-lived PR can exceed one
+          # Unresolved review threads, paginated (a long-lived PR can exceed one
           # 100-thread page; a truncated read must never produce a false pass).
           unresolved=0
           cursor=""
@@ -198,14 +204,14 @@ jobs:
                     }
                   }
                 }')
-            # A thread is Qodo's if ANY of its first comments is by the bot —
-            # first-comment-only attribution loses the thread when the bot's
-            # opening comment is deleted while replies remain (and deletion
-            # re-triggers this check, so that would be a false pass).
-            n=$(echo "$page" | jq --arg b "$BOT" \
+            # Every unresolved thread counts, whoever opened it. Attributing
+            # threads to the bot by their surviving comments loses one whose
+            # opening comment was deleted while replies remain -- a false
+            # pass -- and a human reviewer's open thread deserves an answer
+            # before merge as much as the bot's.
+            n=$(echo "$page" | jq \
               '[.data.repository.pullRequest.reviewThreads.nodes[]
-                | select(.isResolved | not)
-                | select([.comments.nodes[].author.login] | index($b))] | length')
+                | select(.isResolved | not)] | length')
             unresolved=$((unresolved + n))
             more=$(echo "$page" | jq -r \
               '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
@@ -215,7 +221,7 @@ jobs:
           done
 
           if [ "$unresolved" -gt 0 ]; then
-            echo "FAIL: $unresolved unresolved Qodo review thread(s) — address"
+            echo "FAIL: $unresolved unresolved review thread(s) — address"
             echo "or explicitly dismiss each finding in its thread, then mark"
             echo "it resolved. Plain resolution does not auto-retrigger this"
             echo "check: leave a reply in a thread (retriggers) — the passing"
@@ -250,8 +256,10 @@ jobs:
           # The listing is guarded too, not just the reruns: with an unguarded
           # pipeline a transient list failure would be the step's exit code —
           # exactly the PASS-into-FAIL this step promises not to produce.
+          # --limit: the default is 20 runs, and a busy PR's older red runs
+          # would fall outside it and stay red.
           if ! ids=$(gh run list --repo "$REPO" --workflow qodo-gate \
-              --commit "$HEAD_SHA" --json databaseId,conclusion \
+              --commit "$HEAD_SHA" --limit 500 --json databaseId,conclusion \
               --jq '.[] | select(.conclusion == "failure") | .databaseId'); then
             echo "sweep skipped: could not list this workflow's runs"
             exit 0

@@ -24,14 +24,15 @@ that is wrong does not fail to build: it ships, and cameras quietly detect worse
 Prioritise, in order:
 
 1. Reproducibility. A build of one commit must produce the same bytes on any host:
-   every input pinned by URL and sha256 (sources.txt, coco.txt, wheels/SHA256SUMS),
+   every input pinned by URL and sha256 (sources.txt, wheels/SHA256SUMS),
    no network fetch of an unpinned or floating resource, and nothing from the build
    host's memory layout left in a .xmm (scripts/sanitize.py's job). A change that could
    alter a published model must say how it was checked to reproduce.
 
-2. Release assets come only from the release workflow (Actions -> release, by hand).
-   Nothing may upload, replace or delete a release asset from anywhere else, and the
-   main checks must not publish.
+2. Release assets come only from the two workflows run by hand: release (the models)
+   and train (a trained checkpoint, through scripts/publish.sh). Nothing else may
+   upload, replace or delete a release asset, and no check that runs on a pull request
+   or a push may publish.
 
 3. Evidence for model quality. A change to export, calibration, quantization,
    compilation or evaluation must show the int8 result against FP32 (eval.md) or, for
