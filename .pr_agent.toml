@@ -1,0 +1,49 @@
+# Qodo code-review configuration. Every pull request is reviewed, and the
+# qodo-gate workflow keeps it unmergeable until that review exists and every
+# thread it opened is resolved.
+#
+# Reference: https://docs.qodo.ai/install-and-configure/configuration-overview/configuration-file
+
+[github_app]
+pr_commands = [
+    "/agentic_describe",
+    "/agentic_review",
+]
+
+[review_agent]
+comments_location_policy = "both"
+
+# 1 = all severities inline, 2 = high+medium, 3 = high only.
+inline_comments_severity_threshold = 2
+
+issues_user_guidelines = """
+OpenIPC/xmnpu-models builds the neural-network models the GK7205V5x0 cameras run on
+their NPU, and publishes them as release assets the firmware downloads by hash. A model
+that is wrong does not fail to build: it ships, and cameras quietly detect worse.
+
+Prioritise, in order:
+
+1. Reproducibility. A build of one commit must produce the same bytes on any host:
+   every input pinned by URL and sha256 (sources.txt, wheels/SHA256SUMS),
+   no network fetch of an unpinned or floating resource, and nothing from the build
+   host's memory layout left in a .xmm (scripts/sanitize.py's job). A change that could
+   alter a published model must say how it was checked to reproduce.
+
+2. Release assets come only from the two workflows run by hand: release (the models)
+   and train (a trained checkpoint, through scripts/publish.sh). Nothing else may
+   upload, replace or delete a release asset, and no check that runs on a pull request
+   or a push may publish.
+
+3. Evidence for model quality. A change to export, calibration, quantization,
+   compilation or evaluation must show the int8 result against FP32 (eval.md) or, for
+   the presets, the precision/recall table, measured, not described. A threshold, score
+   or mAP stated in a comment or description without the run that produced it is a
+   finding.
+
+4. Provenance. The vendor wheels are kept only to rebuild the models; they are not to be
+   modified, and patches to them live in patches/ against the installed tree. Weights
+   come from a documented upstream or from this repository's own training workflow.
+
+Do not report: speculation about whether a change was written with AI assistance, or
+style preferences that do not change behaviour.
+"""
