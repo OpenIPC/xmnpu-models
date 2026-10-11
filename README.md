@@ -25,21 +25,6 @@ C-model, which is bit-exact with the hardware -- next to the FP32 model's on the
 same pixels. The workflow fails, and publishes nothing, if an int8 detection
 and an FP32 one at 0.5 or more do not match each other (same class, IoU 0.6).
 
-Each model also comes with `<model>.json`, installed beside it, which is what
-majestic's three object-detection presets mean for that model: per class
-(human, vehicle, animal), the threshold for
-
-- `balanced`: the F1-optimal one;
-- `fewerFalseAlarms`: the lowest reaching precision 0.90, else the F0.5 optimum;
-- `catchEverything`: the highest keeping recall at 0.90, else the F2 optimum.
-
-They are measured on all of COCO val2017 from the int8 model itself, on the
-frames the camera gives it (the picture stretched to the input, NV21), with a
-box counted right at IoU 0.5 against its class group; `points.md` in the
-release shows what each preset achieves. The `points` jobs run the quantized
-graph's `xmnpu_x86` build, whose outputs are bit-identical to the C-model's
-(and so the hardware's) at a fraction of its cost, in shards.
-
 ## Building
 
 ```sh
@@ -55,7 +40,7 @@ the vendor's, under the vendor's terms, and are kept here only so the models
 can be rebuilt. Everything else is pinned:
 
 - `sources.txt`: the Ultralytics weights and the coco128 images, by URL and
-  sha256; `coco.txt`: COCO val2017 and its annotations, for the presets.
+  sha256.
 - `models.txt`: what is built, at which input size, keeping which classes.
 - `images.txt`: which coco128 images calibrate the quantizer and which,
   disjoint from them, evaluate the result.
@@ -66,13 +51,10 @@ The steps (`scripts/`): `export.py` writes head-less ONNX, rewriting C2f's
 split as two 1x1 convolutions (TVM 0.7's frontend mis-sizes the ONNX Slice, and
 the quantizer cannot rescale a Split) and cutting the class head down to the
 kept classes; `compile.sh` runs XMTVMC's import, quantize, compile and C-model
-in an `ubuntu:20.04` container; `sanitize.py` zeroes the host memory XMTVMC
-leaves in each `.xmm` -- host pointers, and struct padding holding the upper
-half of one (they follow the build machine's memory layout and mean nothing on
-the camera) -- so a rebuild of the same commit is bit-identical;
-`eval.py` compares int8 with FP32. For the presets, `prep_nv21.py` makes the
-camera's frames, `simulate.sh` runs `sim_dets.py` over them and
-`operating_points.py` scores the result.
+in an `ubuntu:20.04` container; `sanitize.py` zeroes the host pointers XMTVMC
+leaves in each `.xmm` (they follow the build machine's memory layout and mean
+nothing on the camera), so a rebuild of the same commit is bit-identical;
+`eval.py` compares int8 with FP32.
 
 ### The patches
 
