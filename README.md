@@ -30,7 +30,7 @@ majestic's three object-detection presets mean for that model: per class
 (human, vehicle, animal), the threshold for
 
 - `balanced`: the F1-optimal one;
-- `fewerFalseAlarms`: the lowest reaching precision 0.90, else the F0.5 optimum;
+- `fewerFalseAlarms`: the F0.5 optimum (precision weighted);
 - `catchEverything`: the highest keeping recall at 0.90, else the F2 optimum.
 
 They are measured on all of COCO val2017 from the int8 model itself, on the
