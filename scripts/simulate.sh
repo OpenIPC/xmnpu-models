@@ -13,9 +13,17 @@ source "$src/scripts/xmtvmc-env.sh" "$1"
 # spend more time in the kernel than in the convolutions at this size.
 export TVM_NUM_THREADS=1
 n=$(nproc) tmp=$(mktemp -d)
+pids=()
 for i in $(seq 0 $((n - 1))); do
 	"$venv/bin/python" "$src/scripts/sim_dets.py" "$lib" "$frames" "$tmp/$i.txt" \
 		$((shard + i * shards)) $((n * shards)) &
+	pids+=($!)
 done
-wait
+# Each process's own status: a bare wait succeeds whatever they returned, and
+# a crashed one would surface only as a short frame count in publish.
+rc=0
+for p in "${pids[@]}"; do
+	wait "$p" || rc=1
+done
+[ "$rc" -eq 0 ] || { echo "simulate.sh: a simulator process failed" >&2; exit 1; }
 cat "$tmp"/*.txt > "$out"

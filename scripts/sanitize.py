@@ -6,20 +6,20 @@
 # anything on the camera, but both follow the build host's memory layout, so
 # they make every build different.
 #
-# <a> and <b> are the same model built twice with different address layouts
-# (compile.sh builds <b> with address-space randomisation on). Two passes,
-# over 4-byte words, written to <out> from <a>:
+# <a> and <b> are the same model built twice: <a> without address-space
+# randomisation, <b> (compile.sh) with it. Every 4-byte word that differs
+# between them is host memory, and is zeroed -- that word only: the 32-bit
+# value beside a word of padding is real, the same in both, and stays.
 #
-#   1. every word that differs between the builds is zeroed -- that word
-#      only: the 32-bit value beside a word of padding is real and the same in
-#      both, and stays;
-#   2. from the first difference to the end of the file -- the tensor table --
-#      every word whose value is the upper half of an x86-64 user-space stack
-#      (0x7ff0-0x7fff) or heap (0x5500-0x56ff) address is zeroed too. Under
-#      randomisation a stack address's upper half takes only a few values, so
-#      the two builds often agree on one and pass 1 cannot see it; the v4
-#      release kept three that way. The same values occur in weights, which is
-#      why this pass stops at the table.
+# Except a word that holds the upper half of a host address. Under
+# randomisation that half takes only a few values, so on some builds <b>
+# agrees with <a> on it and it does not differ at all; zeroing it only when it
+# happens to differ would make the output depend on <b>'s luck, which is how
+# the v4 release kept three that a rebuild of its commit zeroed. Without
+# randomisation it is fixed on any x86-64 host -- 0x7fff for the stack and
+# mmap, 0x5555 for the PIE heap -- so such a word keeps <a>'s value whether or
+# not it differs (whatever <b> holds there), and the output is the same every
+# time. A word that is equal in the two builds is never changed.
 #
 # Refuses, rather than zeroing anything else, when the builds differ in a way
 # host memory cannot explain: different sizes, a run of differing bytes longer
@@ -48,17 +48,20 @@ for i in diff[1:] + [None]:
     if i is not None:
         run_lo = run_hi = i
 
-differing = {i - i % 4 for i in diff}
-table = diff[0] - diff[0] % 4
-upper_half = {w for w in range(table, len(a) - 3, 4)
-              if w not in differing and
-              (0x7ff0 <= struct.unpack_from("<I", a, w)[0] <= 0x7fff or
-               0x5500 <= struct.unpack_from("<I", a, w)[0] <= 0x56ff)}
-words = differing | upper_half
-if len(words) > MAX_WORDS:
-    sys.exit(f"sanitize: {len(words)} words to zero, more than host memory explains")
-for w in words:
+UPPER_A = (0x7FFF, 0x5555)          # the halves without randomisation
+
+
+def word(buf, w):
+    return struct.unpack_from("<I", buf, w)[0]
+
+
+differing = sorted({i - i % 4 for i in diff})
+kept = [w for w in differing if word(a, w) in UPPER_A]
+zeroed = [w for w in differing if w not in set(kept)]
+if len(zeroed) > MAX_WORDS:
+    sys.exit(f"sanitize: {len(zeroed)} words to zero, more than host memory explains")
+for w in zeroed:
     a[w:w + 4] = bytes(4)
 open(sys.argv[3], "wb").write(a)
-print(f"sanitize: zeroed {len(differing)} differing words and "
-      f"{len(upper_half)} coincident pointer halves")
+print(f"sanitize: zeroed {len(zeroed)} differing words; kept {len(kept)} "
+      "address upper halves at their unrandomised value")

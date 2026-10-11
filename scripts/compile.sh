@@ -70,6 +70,7 @@ grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
 	# simulate.sh run it over all of COCO val2017 for the presets.
 	xmtvmc compile --model $name.qnn.json --weight $name.qnn.params \
 		--target xmnpu_x86 --config-file cfg.yaml >> log.txt 2>&1
+	"$venv/bin/python" "$src/scripts/check_x86.py" $name.qnn.xmnpu_x86.so eval
 	cp $name.qnn.xmnpu_x86.so "$out/$name.x86.so"
 	cp $name.qnn.xmnpu_x86.so.params "$out/$name.x86.so.params"
 	# The same compile with randomisation on, so every byte that follows the

@@ -4,7 +4,12 @@
 # for one model. <dets> is one detection per line, "<image id> x1 y1 x2 y2
 # score class" in network-input pixels (640x384, the picture stretched into
 # it, as the camera does), class being the model's channel index -- what
-# npu_eval prints on the camera and fp32_dets.py prints here.
+# npu_eval prints on the camera and sim_dets.py prints from the int8 model's
+# x86 build. Those are suppressed at IoU 0.7, the mAP convention; this applies
+# the camera's own suppression (IoU 0.45, per class) on top, so what is scored
+# is what the camera publishes. Applying it before the threshold sweep keeps
+# the same boxes as applying it after: a box is only ever suppressed by one
+# that scores higher, which clears any threshold it clears.
 #
 # A person is told about people, vehicles and animals, not COCO's
 # categories, so a box counts as right when it overlaps a ground-truth box of
@@ -34,7 +39,7 @@ COCO_IDS = [1, 2, 3, 4, 6, 8, 17, 18]  # the models' eight channels
 GROUP = {1: "human", 2: "vehicle", 3: "vehicle", 4: "vehicle", 6: "vehicle",
          8: "vehicle", 17: "animal", 18: "animal"}
 GROUPS = ["human", "vehicle", "animal"]
-IOU, NMS_IOU = 0.5, 0.45  # NMS as majestic's NPU backend does it, per class
+IOU, NMS_IOU = 0.5, 0.45  # NMS as majestic's NPU backend does it, per class (ND_NMS_IOU)
 THRESHOLDS = np.round(np.arange(0.05, 0.96, 0.01), 2)
 PRESETS = ["fewerFalseAlarms", "balanced", "catchEverything"]
 
@@ -123,11 +128,14 @@ def main(ann_path, det_path, out_json, out_md=None):
         hit = np.array([x[1] for x in scores[g]], bool)
         tp = np.array([(hit & (s >= t)).sum() for t in THRESHOLDS], float)
         fp = np.array([(~hit & (s >= t)).sum() for t in THRESHOLDS], float)
-        p = np.divide(tp, tp + fp, out=np.ones_like(tp), where=tp + fp > 0)
+        # A threshold above every score reports nothing: no precision to speak
+        # of, and never a preset. Precision 0 there keeps it out of every pick.
+        some = tp + fp > 0
+        p = np.divide(tp, tp + fp, out=np.zeros_like(tp), where=some)
         r = tp / max(npos[g], 1)
         f = lambda b: (1 + b * b) * p * r / np.maximum(b * b * p + r, 1e-9)
         idx = {"balanced": int(f(1).argmax())}
-        ok = np.nonzero(p >= 0.90)[0]
+        ok = np.nonzero(some & (p >= 0.90))[0]
         idx["fewerFalseAlarms"] = int(ok[0]) if len(ok) else int(f(0.5).argmax())
         ok = np.nonzero(r >= 0.90)[0]
         idx["catchEverything"] = int(ok[-1]) if len(ok) else int(f(2).argmax())

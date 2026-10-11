@@ -68,9 +68,11 @@ the quantizer cannot rescale a Split) and cutting the class head down to the
 kept classes; `compile.sh` runs XMTVMC's import, quantize, compile and C-model
 in an `ubuntu:20.04` container; `sanitize.py` zeroes the host memory XMTVMC
 leaves in each `.xmm` -- host pointers, and struct padding holding the upper
-half of one (they follow the build machine's memory layout and mean nothing on
-the camera) -- so a rebuild of the same commit is bit-identical;
-`eval.py` compares int8 with FP32. For the presets, `prep_nv21.py` makes the
+half of one, which keeps its fixed unrandomised value (they follow the build
+machine's memory layout and mean nothing on the camera) -- so a rebuild of the
+same commit is bit-identical;
+`eval.py` compares int8 with FP32; `check_x86.py` holds the x86 build to the
+C-model's exact outputs on the eval images. For the presets, `prep_nv21.py` makes the
 camera's frames, `simulate.sh` runs `sim_dets.py` over them and
 `operating_points.py` scores the result.
 

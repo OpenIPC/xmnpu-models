@@ -119,7 +119,9 @@ jobs:
 
       - name: Operating points
         run: |
-          bash scripts/fetch.sh coco.txt .cache/coco
+          # The annotations only; the images were the points jobs' business.
+          grep '^annotations_trainval2017.zip ' coco.txt > annotations.txt
+          bash scripts/fetch.sh annotations.txt .cache/coco
           unzip -qo -d coco .cache/coco/annotations_trainval2017.zip annotations/instances_val2017.json
           : > out/points.md
           grep -v '^#' models.txt | while read -r name _; do
