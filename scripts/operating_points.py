@@ -21,8 +21,11 @@
 #
 # Per group:
 #   balanced          the F1-optimal threshold
-#   fewerFalseAlarms  the lowest threshold with precision >= 0.90, else the
-#                     F0.5 optimum
+#   fewerFalseAlarms  the F0.5 optimum (precision weighted). A precision
+#                     target (0.90) was tried first; on a weaker model it is
+#                     met only where almost nothing is reported -- the CPU
+#                     person model reached it at 5% recall -- so every model
+#                     uses the F0.5 optimum instead.
 #   catchEverything   the highest threshold with recall >= 0.90, else the
 #                     F2 optimum
 #
@@ -134,9 +137,7 @@ def main(ann_path, det_path, out_json, out_md=None):
         p = np.divide(tp, tp + fp, out=np.zeros_like(tp), where=some)
         r = tp / max(npos[g], 1)
         f = lambda b: (1 + b * b) * p * r / np.maximum(b * b * p + r, 1e-9)
-        idx = {"balanced": int(f(1).argmax())}
-        ok = np.nonzero(some & (p >= 0.90))[0]
-        idx["fewerFalseAlarms"] = int(ok[0]) if len(ok) else int(f(0.5).argmax())
+        idx = {"balanced": int(f(1).argmax()), "fewerFalseAlarms": int(f(0.5).argmax())}
         ok = np.nonzero(r >= 0.90)[0]
         idx["catchEverything"] = int(ok[-1]) if len(ok) else int(f(2).argmax())
         es = np.array(empty_scores[g])
