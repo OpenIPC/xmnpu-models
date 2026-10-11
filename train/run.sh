@@ -50,7 +50,7 @@ train)
 	PYTHONUNBUFFERED=1 "$py" "$src/train/fit.py" "$work/init-$model.pt" \
 		"$work/coco8/coco8.yaml" "$epochs" "$batch" "$run" > "$run/train.log" 2>&1 &
 	fit=$!
-	trap 'kill $fit 2>/dev/null' EXIT  # a cancelled job must not leave it training
+	trap 'kill $fit 2>/dev/null || true' EXIT  # a cancelled job must not leave it training
 	seen=1
 	while kill -0 $fit 2>/dev/null; do
 		sleep 60
