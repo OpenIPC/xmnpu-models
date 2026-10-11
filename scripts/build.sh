@@ -18,11 +18,7 @@ cache=$src/.cache
 (cd "$wheels" && sha256sum -c --quiet "$src/wheels/SHA256SUMS")
 mkdir -p "$cache" "$out/onnx" "$out/images/cal" "$out/images/eval"
 
-grep -v '^#' "$src/sources.txt" | while read -r file sha url; do
-	[ -n "$file" ] || continue
-	[ -f "$cache/$file" ] || curl -sfL -o "$cache/$file" "$url"
-	echo "$sha  $cache/$file" | sha256sum -c --quiet
-done
+bash "$src/scripts/fetch.sh" "$src/sources.txt" "$cache"
 [ -d "$cache/coco128" ] || unzip -qo -d "$cache" "$cache/coco128.zip"
 grep -v '^#' "$src/images.txt" | while read -r set id _; do
 	[ -n "$set" ] && cp "$cache/coco128/images/train2017/$id.jpg" "$out/images/$set/"

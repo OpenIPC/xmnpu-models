@@ -1,2 +1,5 @@
 .cache/
 out/
+.venv/
+out-*/
+__pycache__/
