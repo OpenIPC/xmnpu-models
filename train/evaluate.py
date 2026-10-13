@@ -1,8 +1,8 @@
 # evaluate.py <weights> <data.yaml> <out.md> [reference.pt]
 #
-# COCO val2017 mAP50-95 per class for an 8-class checkpoint, as a markdown
-# table; with [reference.pt], an 80-class COCO model, its scores for the same
-# classes go beside them.
+# COCO val2017 mAP50-95 per class for a checkpoint, as a markdown table; with
+# [reference.pt], an 80-class COCO model, its scores for the same classes go
+# beside them (for the 8-class models, whose classes are COCO's own).
 import sys
 
 from ultralytics import YOLO

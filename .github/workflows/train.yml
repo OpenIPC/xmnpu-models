@@ -1,6 +1,7 @@
 # Fine-tunes a COCO YOLOv8 for the NPU -- LeakyReLU in place of SiLU, the
-# camera's eight classes -- on the self-hosted GPU runner, and publishes the
-# checkpoint as a release for release.yml to compile. Run by hand only, like
+# camera's eight classes -- or trains pvdn (person and vehicle, from scratch;
+# train/pvdn.yaml) on the self-hosted GPU runner, and publishes the checkpoint
+# as a release for release.yml to compile. Run by hand only, like
 # release.yml: a checkpoint is never uploaded from a workstation.
 #
 # mode "import" publishes a fine-tune already run on the runner's host (its
@@ -16,12 +17,12 @@ on:
         options: [train, import]
         default: train
       model:
-        description: COCO model to start from
+        description: COCO model to start from, or pvdn (from scratch)
         type: choice
-        options: [yolov8n, yolov8s]
+        options: [yolov8n, yolov8s, pvdn]
         default: yolov8s
       epochs:
-        description: Epochs (train)
+        description: Epochs (train; a fine-tune takes about 60, pvdn from scratch about 300)
         default: "60"
       batch:
         description: Batch size (train)
@@ -75,6 +76,8 @@ jobs:
             echo
             cat out/eval.md
             echo
-            echo "The reference column is the stock SiLU ${{ inputs.model }} (80 classes) on the same images."
+            if [ "${{ inputs.model }}" != pvdn ]; then
+              echo "The reference column is the stock SiLU ${{ inputs.model }} (80 classes) on the same images."
+            fi
           } > notes.md
           bash scripts/publish.sh "$TAG" notes.md out/*

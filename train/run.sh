@@ -3,9 +3,11 @@
 # train/run.sh import <model> <run-dir> <out-dir>
 #
 # Fine-tunes a COCO YOLOv8 (yolov8n, yolov8s) with LeakyReLU activations and
-# the camera's eight classes, or takes a fine-tune already run on this host
-# (import), then evaluates it and writes what a release carries to <out-dir>:
-# <model>-lrelu-c8.pt, results.csv, args.yaml, eval.md and SHA256SUMS.
+# the camera's eight classes, or trains pvdn (train/pvdn.yaml: person and
+# vehicle) from scratch, or takes a run already made on this host (import);
+# then evaluates it and writes what a release carries to <out-dir>: the
+# checkpoint (<model>-lrelu-c8.pt, or pvdn.pt), results.csv, args.yaml,
+# eval.md and SHA256SUMS.
 #
 # COCO_DIR is the COCO 2017 copy (see dataset.py); TRAIN_WORK keeps the
 # environment, the dataset and the runs between jobs.
@@ -27,28 +29,39 @@ mkdir -p "$work/cache"
 	-r "$src/requirements-train.txt"
 py="$work/venv/bin/python"
 
-grep -v '^#' "$src/sources.txt" | while read -r file sha url; do
-	[ "$file" = "$model.pt" ] || continue
-	[ -f "$work/cache/$file" ] || curl -sfL -o "$work/cache/$file" "$url"
-	echo "$sha  $work/cache/$file" | sha256sum -c --quiet
-done
-[ -f "$work/cache/$model.pt" ] || { echo "no $model.pt in sources.txt"; exit 1; }
+# What each model starts from, trains on, and is published as.
+case $model in
+pvdn)
+	set_=pv data=$work/pv/pv.yaml ckpt=pvdn.pt ref=
+	init() { "$py" "$src/train/init.py" "$src/train/pvdn.yaml" "$1" person,vehicle; }
+	;;
+*)
+	set_=c8 data=$work/coco8/coco8.yaml ckpt=$model-lrelu-c8.pt ref=$work/cache/$model.pt
+	grep -v '^#' "$src/sources.txt" | while read -r file sha url; do
+		[ "$file" = "$model.pt" ] || continue
+		[ -f "$work/cache/$file" ] || curl -sfL -o "$work/cache/$file" "$url"
+		echo "$sha  $work/cache/$file" | sha256sum -c --quiet
+	done
+	[ -f "$ref" ] || { echo "no $model.pt in sources.txt"; exit 1; }
+	init() { "$py" "$src/train/init.py" "$ref" "$1"; }
+	;;
+esac
 
 case $mode in train) out=$(realpath -m "$5") ;; import) out=$(realpath -m "$4") ;; esac
 cd "$work"
-"$py" "$src/train/dataset.py" "$coco" "$work/coco8"
+"$py" "$src/train/dataset.py" "$coco" "$(dirname "$data")" "$set_"
 case $mode in
 train)
 	epochs=$3 batch=$4
-	run=$work/runs/$model-lrelu-c8-$(date -u +%Y%m%d-%H%M%S)
-	"$py" "$src/train/init.py" "$work/cache/$model.pt" "$work/init-$model.pt"
+	run=$work/runs/${ckpt%.pt}-$(date -u +%Y%m%d-%H%M%S)
+	init "$work/init-$model.pt"
 	mkdir -p "$run"
 	# The trainer's progress bars are carriage returns without newlines, hours
 	# of them; written into the runner's pipe they stalled a job four minutes
 	# in and cut its traceback off at "Trace". They go to train.log instead,
 	# and the job log gets one line per finished epoch from results.csv.
 	PYTHONUNBUFFERED=1 "$py" "$src/train/fit.py" "$work/init-$model.pt" \
-		"$work/coco8/coco8.yaml" "$epochs" "$batch" "$run" > "$run/train.log" 2>&1 &
+		"$data" "$epochs" "$batch" "$run" > "$run/train.log" 2>&1 &
 	fit=$!
 	trap 'kill $fit 2>/dev/null || true' EXIT  # a cancelled job must not leave it training
 	seen=1
@@ -70,9 +83,8 @@ import)
 	;;
 esac
 mkdir -p "$out"
-cp "$run/weights/best.pt" "$out/$model-lrelu-c8.pt"
+cp "$run/weights/best.pt" "$out/$ckpt"
 cp "$run/results.csv" "$run/args.yaml" "$out/"
 [ -f "$run/train.log" ] && tr '\r' '\n' < "$run/train.log" | grep -av '^ *$' | gzip -9 > "$out/train.log.gz"
-"$py" "$src/train/evaluate.py" "$out/$model-lrelu-c8.pt" "$work/coco8/coco8.yaml" \
-	"$out/eval.md" "$work/cache/$model.pt"
+"$py" "$src/train/evaluate.py" "$out/$ckpt" "$data" "$out/eval.md" $ref
 (cd "$out" && sha256sum ./* | sed 's# \./# #' | grep -v SHA256SUMS > SHA256SUMS && cat SHA256SUMS)
