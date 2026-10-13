@@ -23,6 +23,11 @@ for i, n in names.items():
     rows.append(f"| {n} | {ours[i] * 100:.1f} |" + (f" {ref[i] * 100:.1f} |" if ref else ""))
 rows.append(f"| **mean** | **{sum(ours) / len(ours) * 100:.1f}** |" +
             (f" **{sum(ref) / len(ref) * 100:.1f}** |" if ref else ""))
-what = "MEVA held-out cameras" if data.endswith("meva.yaml") else "COCO val2017"
+# The MEVA cameras' labels are MEVA's boxes merged with a teacher model's
+# (meva.py), not boxes checked by hand, so that table measures agreement with
+# that reference -- it can say a model learned the camera view, not that it
+# found someone the teacher missed. The heading says so.
+what = ("MEVA held-out cameras (labels: MEVA's own boxes merged with a teacher "
+        "model's, not checked by hand)" if data.endswith("meva.yaml") else "COCO val2017")
 open(out, "w").write(f"{what} mAP50-95, per class\n\n" + "\n".join(rows) + "\n")
 print("\n".join(rows))

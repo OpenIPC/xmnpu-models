@@ -14,11 +14,15 @@
 #   meva.py select <meva-data-repo> <out keys.txt>
 #       the clips: from each annotated camera, PER_CAMERA spread over the days
 #   meva.py label <keys.txt> <cache> <out-dir> <meva-data-repo>
-#       fetch them, hash them, label the sampled frames:
-#       <out-dir>/clips.txt and <out-dir>/labels.tsv.gz
+#       fetch them, hash them, label the sampled frames: <out-dir>/clips.txt,
+#       <out-dir>/labels.tsv.gz and <out-dir>/frames.sha256.gz. A clip
+#       already labelled in <out-dir> (same sha256) keeps its labels.
 #   meva.py build <cache> <pv-dir>
 #       what training runs, after dataset.py has built <pv-dir>: fetch the
-#       pinned clips, check them, extract the frames and write a YOLO set,
+#       pinned clips, check them, extract the frames, check THEM against
+#       frames.sha256.gz -- the clips are pinned, but the pixels are whatever
+#       this host's ffmpeg decodes them to, so a different decoder fails the
+#       build here rather than training on other pictures -- and write a YOLO set,
 #       <pv-dir>/meva/{images,labels}/{train,val}. The train frames join
 #       pv.yaml's train list (MEVA_REPEAT times, so a few thousand frames are
 #       not lost among COCO's sixty thousand) and inputs.sha256; the val split
@@ -80,11 +84,25 @@ def frames(path):
     return list(range(FIRST, int(out.strip().split(",")[0]), EVERY))
 
 
-def extract(path, ns, out_dir, stem):
-    """Frames ns of the clip as <out_dir>/<stem>_<n>.jpg, decoded in order."""
+def file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def extract(path, ns, out_dir, stem, want_sha=None):
+    """Frames ns of the clip as <out_dir>/<stem>_<n>.jpg, decoded in order.
+    With want_sha ({file name: sha256}), frames already on disk are kept only
+    if they match, and freshly decoded ones must."""
     os.makedirs(out_dir, exist_ok=True)
     want = [f"{out_dir}/{stem}_{n:05d}.jpg" for n in ns]
-    if all(os.path.exists(w) for w in want):
+    def good(w):
+        if not (os.path.exists(w) and os.path.getsize(w)):
+            return False
+        return not want_sha or file_sha256(w) == want_sha.get(os.path.basename(w))
+    if all(good(w) for w in want):
         return want
     sel = "+".join(f"eq(n\\,{n})" for n in ns)
     tmp = f"{out_dir}/.{stem}_%05d.jpg"
@@ -92,6 +110,12 @@ def extract(path, ns, out_dir, stem):
                     f"select={sel}", "-vsync", "0", "-q:v", "2", tmp], check=True)
     for i, w in enumerate(want):
         os.replace(tmp % (i + 1), w)
+    if want_sha:
+        bad = [w for w in want if not good(w)]
+        if bad:
+            raise SystemExit(f"{os.path.basename(bad[0])}: decodes to other pixels than "
+                             f"frames.sha256.gz pins; this host's ffmpeg is not the one the "
+                             f"labels were made with")
     return want
 
 
@@ -113,6 +137,14 @@ def bucket_keys(prefix):
             return keys
 
 
+def spread(items, k):
+    """k of items, evenly spaced from the first to the last."""
+    n = len(items)
+    if n <= k:
+        return list(items)
+    return [items[round(i * (n - 1) / (k - 1))] for i in range(k)]
+
+
 def select(repo, out):
     there = {os.path.basename(k)[:-len(".r13.avi")]: k for k in bucket_keys("drops-123-r13/")
              if k.endswith(".r13.avi")}
@@ -123,8 +155,7 @@ def select(repo, out):
         by_cam.setdefault(camera(c), []).append(c)
     keys = []
     for cam, cs in sorted(by_cam.items()):
-        step = max(1, len(cs) // PER_CAMERA)
-        keys += [there[c] for c in cs[::step][:PER_CAMERA]]
+        keys += [there[c] for c in spread(cs, PER_CAMERA)]
     with open(out, "w") as f:
         f.write("\n".join(keys) + "\n")
     print(f"{len(keys)} clips from {len(by_cam)} cameras")
@@ -163,16 +194,37 @@ def label(keys_txt, cache, out, repo):
     net = fasterrcnn_resnet50_fpn_v2(weights=FasterRCNN_ResNet50_FPN_V2_Weights.DEFAULT,
                                      box_score_thresh=TEACHER_MIN).eval().to(dev)
     keys = open(keys_txt).read().split()
-    pinned, rows = [], []
+    # What an earlier run in `out` labelled, kept for a clip whose bytes have
+    # not changed: the teacher is the slow part, and a change of selection
+    # should only pay for the clips it adds.
+    old_sha, old_rows, old_frames = {}, {}, {}
+    if os.path.exists(f"{out}/clips.txt"):
+        for line in open(f"{out}/clips.txt"):
+            if line.strip() and not line.startswith("#"):
+                key, sha = line.split()
+                old_sha[os.path.basename(key)[:-len(".r13.avi")]] = sha
+        for line in gzip.open(f"{out}/labels.tsv.gz", "rt"):
+            old_rows.setdefault(line.split("\t", 1)[0], []).append(line.rstrip("\n"))
+        if os.path.exists(f"{out}/frames.sha256.gz"):
+            for line in gzip.open(f"{out}/frames.sha256.gz", "rt"):
+                sha, name = line.split()
+                old_frames[name] = sha
+    pinned, rows, hashes = [], [], []
     for k, key in enumerate(keys):
         clip = os.path.basename(key)[:-len(".r13.avi")]
         path = f"{cache}/meva/{os.path.basename(key)}"
         fetch(key, path)
-        h = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        h = file_sha256(path)
         pinned.append(f"{key}\t{h}")
         ns = frames(path)
+        imgs = extract(path, ns, f"{cache}/meva-frames", clip)
+        hashes += [f"{file_sha256(i)}  {os.path.basename(i)}" for i in imgs]
+        if old_sha.get(clip) == h and clip in old_rows:
+            rows += old_rows[clip]
+            print(f"{k + 1}/{len(keys)} {clip}: kept", flush=True)
+            continue
         gt = gt_boxes(repo, clip)
-        for n, img in zip(ns, extract(path, ns, f"{cache}/meva-frames", clip)):
+        for n, img in zip(ns, imgs):
             x = torchvision.io.read_image(img).float().div(255).to(dev)
             H, W = x.shape[1:]
             with torch.no_grad():
@@ -198,11 +250,17 @@ def label(keys_txt, cache, out, repo):
         f.write("\n".join(pinned) + "\n")
     with gzip.GzipFile(f"{out}/labels.tsv.gz", "wb", mtime=0) as f:
         f.write(("\n".join(rows) + "\n").encode())
+    with gzip.GzipFile(f"{out}/frames.sha256.gz", "wb", mtime=0) as f:
+        f.write(("\n".join(hashes) + "\n").encode())
 
 
 def build(cache, out):
     pinned = [line.split("\t") for line in open(f"{PINNED}/clips.txt")
               if line.strip() and not line.startswith("#")]
+    frame_sha = {}
+    for line in gzip.open(f"{PINNED}/frames.sha256.gz", "rt"):
+        sha, name = line.split()
+        frame_sha[name] = sha
     labels = {}
     for line in gzip.open(f"{PINNED}/labels.tsv.gz", "rt"):
         clip, n, boxes = line.rstrip("\n").split("\t")
@@ -214,7 +272,7 @@ def build(cache, out):
         fetch(key, path, sha.strip())
         split = "val" if camera(clip) in HELD_OUT else "train"
         ns = sorted(labels[clip])
-        imgs = extract(path, ns, f"{cache}/meva-frames", clip)
+        imgs = extract(path, ns, f"{cache}/meva-frames", clip, frame_sha)
         img_dir, lab_dir = f"{out}/meva/images/{split}", f"{out}/meva/labels/{split}"
         os.makedirs(img_dir, exist_ok=True)
         os.makedirs(lab_dir, exist_ok=True)

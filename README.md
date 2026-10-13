@@ -64,7 +64,10 @@ only, on the self-hosted GPU runner, and published as releases of their own
   scripted activities, so each frame's labels are those merged with a
   teacher's (torchvision's Faster R-CNN v2); the merged labels are committed
   in `train/meva/`, so a build needs no teacher. Three cameras are held out of
-  training, and `eval.md` scores them beside COCO val2017.
+  training, and `eval.md` scores them beside COCO val2017. Their labels are
+  the same merge, not boxes checked by hand, so that table measures how well a
+  model agrees with them on cameras it never trained on, not whether it finds
+  people the teacher missed.
 
 ### Training data
 
