@@ -11,7 +11,9 @@
 # SHA256SUMS.
 #
 # COCO_DIR is the COCO 2017 copy (see dataset.py); TRAIN_WORK keeps the
-# environment, the dataset and the runs between jobs.
+# environment, the dataset and the runs between jobs. pvdn also trains on MEVA
+# security-camera frames (meva.py), fetched into TRAIN_WORK/cache, and its
+# eval.md scores the MEVA cameras held out of training as well as COCO.
 set -euo pipefail
 src=$(cd "$(dirname "$0")/.." && pwd)
 mode=$1 model=$2
@@ -51,6 +53,8 @@ esac
 case $mode in train) out=$(realpath -m "$5") ;; import) out=$(realpath -m "$4") ;; esac
 cd "$work"
 "$py" "$src/train/dataset.py" "$coco" "$(dirname "$data")" "$set_"
+# The person/vehicle set also trains on security-camera frames (meva.py).
+[ "$set_" = pv ] && "$py" "$src/train/meva.py" build "$work/cache" "$(dirname "$data")"
 case $mode in
 train)
 	epochs=$3 batch=$4
@@ -89,4 +93,8 @@ cp "$run/results.csv" "$run/args.yaml" "$out/"
 gzip -9c "$(dirname "$data")/inputs.sha256" > "$out/inputs.sha256.gz"
 [ -f "$run/train.log" ] && tr '\r' '\n' < "$run/train.log" | grep -av '^ *$' | gzip -9 > "$out/train.log.gz"
 "$py" "$src/train/evaluate.py" "$out/$ckpt" "$data" "$out/eval.md" $ref
+if [ "$set_" = pv ]; then
+	"$py" "$src/train/evaluate.py" "$out/$ckpt" "$(dirname "$data")/meva.yaml" "$out/eval-meva.md"
+	{ echo; cat "$out/eval-meva.md"; } >> "$out/eval.md" && rm "$out/eval-meva.md"
+fi
 (cd "$out" && sha256sum ./* | sed 's# \./# #' | grep -v SHA256SUMS > SHA256SUMS && cat SHA256SUMS)

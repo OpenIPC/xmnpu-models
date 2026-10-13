@@ -57,6 +57,35 @@ only, on the self-hosted GPU runner, and published as releases of their own
   classes: person, and vehicle (COCO's bicycle, car, motorcycle, bus and truck
   as one).
 
+  It trains on COCO and on frames of security-camera video from MEVA
+  (`train/meva.py`): fixed cameras mounted high over school, bus-depot,
+  hospital and office grounds, indoors and out, the view a counting camera
+  has and COCO mostly lacks. MEVA's own boxes cover only the actors of its
+  scripted activities, so each frame's labels are those merged with a
+  teacher's (torchvision's Faster R-CNN v2); the merged labels are committed
+  in `train/meva/`, so a build needs no teacher. Three cameras are held out of
+  training, and `eval.md` scores them beside COCO val2017. Their labels are
+  the same merge, not boxes checked by hand, so that table measures how well a
+  model agrees with them on cameras it never trained on, not whether it finds
+  people the teacher missed.
+
+### Training data
+
+| set | licence | used for |
+|---|---|---|
+| COCO 2017 | annotations CC BY 4.0; images under Flickr terms | every model |
+| [MEVA](https://mevadata.org) | CC BY 4.0 (video and annotations) | pvdn |
+
+"Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and
+the Intelligence Advanced Research Projects Activity (IARPA), licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The labels in
+`train/meva/labels.tsv.gz` are derived from it (merged with a model's) and are
+under the same licence.
+
+Sets that were considered and are not used, because their terms rule out
+commercial use or redistribution: CrowdHuman, HABBOF, CEPDOF, WEPDTOF, MOT17/20
+and VIRAT.
+
 ## Building
 
 ```sh
