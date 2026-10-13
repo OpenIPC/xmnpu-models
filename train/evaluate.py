@@ -1,6 +1,7 @@
 # evaluate.py <weights> <data.yaml> <out.md> [reference.pt]
 #
-# COCO val2017 mAP50-95 per class for a checkpoint, as a markdown table; with
+# COCO val2017 mAP50-95 per class for a checkpoint, as a markdown table (or
+# the MEVA cameras held out of training, for meva.yaml, see meva.py); with
 # [reference.pt], an 80-class COCO model, its scores for the same classes go
 # beside them (for the 8-class models, whose classes are COCO's own).
 import sys
@@ -22,5 +23,6 @@ for i, n in names.items():
     rows.append(f"| {n} | {ours[i] * 100:.1f} |" + (f" {ref[i] * 100:.1f} |" if ref else ""))
 rows.append(f"| **mean** | **{sum(ours) / len(ours) * 100:.1f}** |" +
             (f" **{sum(ref) / len(ref) * 100:.1f}** |" if ref else ""))
-open(out, "w").write("COCO val2017 mAP50-95, per class\n\n" + "\n".join(rows) + "\n")
+what = "MEVA held-out cameras" if data.endswith("meva.yaml") else "COCO val2017"
+open(out, "w").write(f"{what} mAP50-95, per class\n\n" + "\n".join(rows) + "\n")
 print("\n".join(rows))
