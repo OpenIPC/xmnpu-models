@@ -1,32 +1,47 @@
-# dataset.py <coco-dir> <out-dir>
+# dataset.py <coco-dir> <out-dir> [c8|pv]
 #
-# Builds the 8-class training set, <out-dir>/coco8.yaml, from a COCO 2017 copy:
-# <coco-dir>/train2017 (and train2017_extra) with instances_train2017.json,
-# and val2017 with annotations/instances_val2017.json. Labels are remapped to
-# the camera's eight classes and every other class is dropped.
+# Builds a training set from a COCO 2017 copy: <coco-dir>/train2017 (and
+# train2017_extra) with instances_train2017.json, and val2017 with
+# annotations/instances_val2017.json. Labels are remapped and every other class
+# is dropped:
+#   c8 (default)  the camera's eight classes, <out-dir>/coco8.yaml
+#   pv            two: person, and vehicle (bicycle, car, motorcycle, bus and
+#                 truck as one class), <out-dir>/pv.yaml
 #
 # The copy need not be complete. Train images that hold one of the eight
 # classes but are not on disk are fetched into train2017_extra, with a fixed
 # sample of images that hold none of them as background; a copy holding only
 # COCO's person images (as the lab's does) otherwise leaves a model with 17%
 # of the cats and no background at all. Images with a cat or a dog are listed
-# PETS_REPEAT times: they are the rarest of the eight.
+# PETS_REPEAT times where the set keeps them: they are the rarest of the eight.
 import collections
 import concurrent.futures
+import hashlib
 import json
 import os
 import random
 import sys
 import urllib.request
 
-KEEP = [1, 2, 3, 4, 6, 8, 17, 18]  # COCO-91 ids, in output order
-NAMES = ["person", "bicycle", "car", "motorcycle", "bus", "truck", "cat", "dog"]
+# COCO-91 id -> output class, and the output classes' names, per set.
+SETS = {
+    "c8": ({1: 0, 2: 1, 3: 2, 4: 3, 6: 4, 8: 5, 17: 6, 18: 7},
+           ["person", "bicycle", "car", "motorcycle", "bus", "truck", "cat", "dog"]),
+    "pv": ({1: 0, 2: 1, 3: 1, 4: 1, 6: 1, 8: 1}, ["person", "vehicle"]),
+}
+# The annotations every set is built from, pinned: a copy that differs would
+# change what is trained on without anything else noticing.
+ANNOTATIONS = {
+    "instances_train2017.json": "610fce4944abdeb15354cc765333805529359d12d88f2f711393ca586901d01d",
+    "instances_val2017.json": "e8c7f7908f1d7278341fae127d0da654f102f11bd7b21d8aeefa635b8c810b6f",
+}
 PETS = {17, 18}
 PETS_REPEAT, BACKGROUND, SEED = 3, 6000, 0
 URL = "http://images.cocodataset.org"
 
 coco, out = (os.path.abspath(os.path.expanduser(p)) for p in sys.argv[1:3])
-remap = {c: i for i, c in enumerate(KEEP)}
+kind = sys.argv[3] if len(sys.argv) > 3 else "c8"
+remap, NAMES = SETS[kind]
 
 
 def fetch(url, path):
@@ -40,6 +55,20 @@ def fetch(url, path):
         except OSError:
             pass
     raise SystemExit(f"cannot fetch {url}")
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_annotations(path):
+    want = ANNOTATIONS[os.path.basename(path)]
+    if sha256(path) != want:
+        sys.exit(f"{path} is not the COCO 2017 release's (sha256 should be {want})")
 
 
 def ensure_val():
@@ -65,7 +94,13 @@ def build(split, ann, dirs, train):
         has = {i: {a["category_id"] for a in by_img[i]} for i in imgs}
         need = sorted(imgs[i]["file_name"] for i in imgs
                       if has[i] & set(remap) and imgs[i]["file_name"] not in on_disk)
-        pool = sorted(imgs[i]["file_name"] for i in imgs if not has[i] & set(remap))
+        # The background sample is the same for every class set: images
+        # holding none of the eight classes, which hold nothing any set
+        # keeps. So it does not depend on the set (or on what is on disk), the
+        # eight-class models' sample is the one they were trained with, and a
+        # host that built one set already holds the others' backgrounds.
+        c8 = set(SETS["c8"][0])
+        pool = sorted(imgs[i]["file_name"] for i in imgs if not has[i] & c8)
         bg = set(random.Random(SEED).sample(pool, BACKGROUND))
         need += sorted(f for f in bg if f not in on_disk)
         extra = f"{coco}/{split}_extra"
@@ -98,7 +133,8 @@ def build(split, ann, dirs, train):
         with open(f"{lab_dir}/{f[:-4]}.txt", "w") as lf:
             lf.write("\n".join(rows) + ("\n" if rows else ""))
         entry = f"./images/{split}/{f}"
-        is_pet = any(a["category_id"] in PETS for a in by_img[i] if not a.get("iscrowd"))
+        is_pet = any(a["category_id"] in PETS & set(remap)
+                     for a in by_img[i] if not a.get("iscrowd"))
         listed += [entry] * (PETS_REPEAT if train and is_pet else 1)
         pets += is_pet
         n_bg += not rows
@@ -111,9 +147,23 @@ def build(split, ann, dirs, train):
 
 
 ensure_val()
+check_annotations(f"{coco}/instances_train2017.json")
+check_annotations(f"{coco}/annotations/instances_val2017.json")
 build("train2017", f"{coco}/instances_train2017.json",
       [f"{coco}/train2017", f"{coco}/train2017_extra"], True)
 build("val2017", f"{coco}/annotations/instances_val2017.json", [f"{coco}/val2017"], False)
+
+# What was trained and validated on, image by image: published with the
+# checkpoint (run.sh), so a release can be tied to its exact inputs even though
+# the images themselves are fetched rather than pinned one by one.
+listed = []
+for split in ("train2017", "val2017"):
+    listed += sorted({l.strip() for l in open(f"{out}/{split}.txt") if l.strip()})
+with open(f"{out}/inputs.sha256", "w") as mf:
+    with concurrent.futures.ThreadPoolExecutor(8) as ex:
+        for rel, h in zip(listed, ex.map(lambda r: sha256(f"{out}/{r}"), listed)):
+            mf.write(f"{h}  {rel[2:]}\n")
+print(f"inputs.sha256: {len(listed)} images")
 
 # val2017 with all 80 classes, so evaluate.py can score an 80-class reference
 # (the stock SiLU model) on the very same images and boxes.
@@ -145,6 +195,6 @@ with open(f"{out}/coco80.yaml", "w") as y:
     names80 = [c["name"] for c in sorted(d["categories"], key=lambda c: c["id"])]
     y.write(f"path: {out}/coco80\ntrain: val2017.txt\nval: val2017.txt\nnames:\n")
     y.write("".join(f"  {i}: {n}\n" for i, n in enumerate(names80)))
-with open(f"{out}/coco8.yaml", "w") as y:
+with open(f"{out}/{'coco8' if kind == 'c8' else kind}.yaml", "w") as y:
     y.write(f"path: {out}\ntrain: train2017.txt\nval: val2017.txt\nnames:\n")
     y.write("".join(f"  {i}: {n}\n" for i, n in enumerate(NAMES)))

@@ -1,9 +1,12 @@
 # init.py <silu.pt> <out.pt>
+# init.py <model.yaml> <out.pt> <name>[,<name>...]
 #
-# The starting point for a fine-tune: a COCO YOLOv8 checkpoint with every SiLU
+# The starting point for training. From a COCO YOLOv8 checkpoint: every SiLU
 # replaced by LeakyReLU(0.1) -- which the NPU fuses into the convolution,
 # where SiLU costs a lookup-table pass of its own -- and the class head cut
-# down to the camera's eight classes, keeping their trained rows.
+# down to the camera's eight classes, keeping their trained rows. From a model
+# YAML (train/pvdn.yaml): the model it describes, untrained, with the class
+# names given, for training from scratch.
 import sys
 
 import torch
@@ -15,6 +18,17 @@ KEEP = [0, 1, 2, 3, 5, 7, 15, 16]  # COCO-80 ids
 NAMES = ["person", "bicycle", "car", "motorcycle", "bus", "truck", "cat", "dog"]
 
 src, out = sys.argv[1:3]
+if src.endswith(".yaml"):
+    torch.manual_seed(0)  # the same starting weights on every run
+    y = YOLO(src)
+    names = sys.argv[3].split(",")
+    nc = y.model.yaml["nc"]
+    assert len(names) == nc, f"{src} has {nc} classes, not {len(names)}"
+    y.model.names = dict(enumerate(names))
+    y.save(out)
+    acts = {type(x).__name__ for x in YOLO(out).model.modules() if "LU" in type(x).__name__}
+    print(f"{out}: {src}, untrained, classes {names}, activations {sorted(acts)}")
+    sys.exit(0)
 scale = YOLO(src).model.yaml.get("scale") or src.split("/")[-1][len("yolov8")]
 cfg = yaml.safe_load(open(ROOT / "cfg/models/v8/yolov8.yaml"))
 cfg.update(scale=scale, activation="nn.LeakyReLU(0.1)")

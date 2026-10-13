@@ -40,6 +40,23 @@ release shows what each preset achieves. The `points` jobs run the quantized
 graph's `xmnpu_x86` build, whose outputs are bit-identical to the C-model's
 (and so the hardware's) at a fraction of its cost, in shards.
 
+## Training
+
+The checkpoints the build compiles are trained by the `train` workflow, by hand
+only, on the self-hosted GPU runner, and published as releases of their own
+(`train/run.sh` does the work):
+
+- `yolov8n`, `yolov8s`: COCO YOLOv8 fine-tuned with LeakyReLU(0.1) in place of
+  SiLU -- the NPU fuses it into the convolution, where SiLU costs a pass of
+  its own -- and cut to the eight classes above.
+- `pvdn` (`train/pvdn.yaml`): a person/vehicle detector trained from scratch,
+  640x352. Its body is the layout of the person/vehicle model camera vendors
+  ship for customer counting on these SoCs -- a slimmed YOLOv5n: a stride-4
+  stem, C3 stages of 32/64/120/232 channels, SPPF, a PAN neck -- with
+  YOLOv8's head, so it is built, gated and decoded like the others. Two
+  classes: person, and vehicle (COCO's bicycle, car, motorcycle, bus and truck
+  as one).
+
 ## Building
 
 ```sh
