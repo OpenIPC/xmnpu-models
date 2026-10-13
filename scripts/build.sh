@@ -24,7 +24,7 @@ grep -v '^#' "$src/images.txt" | while read -r set id _; do
 	[ -n "$set" ] && cp "$cache/coco128/images/train2017/$id.jpg" "$out/images/$set/"
 done
 
-grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
+grep -v '^#' "$src/models.txt" | while read -r name weights h w keep groups; do
 	[ -n "$name" ] && python3 "$src/scripts/export.py" "$cache/$weights" "$h" "$w" \
 		"$keep" "$out/onnx/$name.onnx"
 done

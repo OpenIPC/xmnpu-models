@@ -69,7 +69,7 @@ out = sys.argv[1]
 models = [l.split() for l in open(os.path.join(os.path.dirname(__file__), "..", "models.txt"))
           if l.strip() and not l.startswith("#")]
 report, failed = ["| model | image | FP32 | int8 (NPU C-model) |", "|---|---|---|---|"], False
-for name, weights, h, w, keep in models:
+for name, weights, h, w, keep, _groups in models:
     labels = YOLO(f"{os.path.dirname(__file__)}/../.cache/{weights}").names
     h, w, names = int(h), int(w), [labels[int(c)] for c in keep.split(",")]
     sess = ort.InferenceSession(f"{out}/onnx/{name}.onnx")

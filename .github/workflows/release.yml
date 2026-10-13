@@ -75,7 +75,11 @@ jobs:
         run: |
           bash scripts/fetch.sh coco.txt .cache/coco
           unzip -qo -d coco .cache/coco/val2017.zip
-          python3 scripts/prep_nv21.py coco/val2017 nv21
+          # At this model's own input size: the frames are what the camera's
+          # VPSS would hand it, stretched to its W x H.
+          read -r h w <<< "$(awk -v m=${{ matrix.model }} '$1 == m { print $3, $4 }' models.txt)"
+          [ -n "$w" ] || { echo "${{ matrix.model }} is not in models.txt"; exit 1; }
+          python3 scripts/prep_nv21.py coco/val2017 nv21 "$w" "$h"
 
       - uses: actions/download-artifact@v4
         with:
@@ -124,15 +128,17 @@ jobs:
           bash scripts/fetch.sh annotations.txt .cache/coco
           unzip -qo -d coco .cache/coco/annotations_trainval2017.zip annotations/instances_val2017.json
           : > out/points.md
-          grep -v '^#' models.txt | while read -r name _; do
+          grep -v '^#' models.txt | while read -r name _ h w _ groups; do
             [ -n "$name" ] || continue
+            # Every model in models.txt has to be in the points matrix above,
+            # or its shards are missing and this fails below on the count.
             cat dets/dets-$name-*/dets.txt > dets-$name.txt
             # Every shard says how many frames it ran; a short total is a
             # shard that did not, which would skew every threshold.
             n=$(awk '$1 == "#" && $2 == "frames" { t += $3 } END { print t + 0 }' dets-$name.txt)
             [ "$n" -eq 5000 ] || { echo "$name: $n of 5000 frames simulated"; exit 1; }
             python3 scripts/operating_points.py coco/annotations/instances_val2017.json \
-              dets-$name.txt out/$name.json out/$name.points.md
+              dets-$name.txt out/$name.json out/$name.points.md "$w" "$h" "$groups"
             { echo "### $name"; echo; cat out/$name.points.md; echo; } >> out/points.md
           done
           cd out && sha256sum ./*.xmm ./*.json | sed 's# \./# #' > SHA256SUMS && cat SHA256SUMS
