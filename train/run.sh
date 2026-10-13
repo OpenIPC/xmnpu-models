@@ -7,7 +7,8 @@
 # vehicle) from scratch, or takes a run already made on this host (import);
 # then evaluates it and writes what a release carries to <out-dir>: the
 # checkpoint (<model>-lrelu-c8.pt, or pvdn.pt), results.csv, args.yaml,
-# eval.md and SHA256SUMS.
+# inputs.sha256.gz (every image trained and validated on), eval.md and
+# SHA256SUMS.
 #
 # COCO_DIR is the COCO 2017 copy (see dataset.py); TRAIN_WORK keeps the
 # environment, the dataset and the runs between jobs.
@@ -85,6 +86,7 @@ esac
 mkdir -p "$out"
 cp "$run/weights/best.pt" "$out/$ckpt"
 cp "$run/results.csv" "$run/args.yaml" "$out/"
+gzip -9c "$(dirname "$data")/inputs.sha256" > "$out/inputs.sha256.gz"
 [ -f "$run/train.log" ] && tr '\r' '\n' < "$run/train.log" | grep -av '^ *$' | gzip -9 > "$out/train.log.gz"
 "$py" "$src/train/evaluate.py" "$out/$ckpt" "$data" "$out/eval.md" $ref
 (cd "$out" && sha256sum ./* | sed 's# \./# #' | grep -v SHA256SUMS > SHA256SUMS && cat SHA256SUMS)

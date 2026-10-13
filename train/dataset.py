@@ -16,6 +16,7 @@
 # PETS_REPEAT times where the set keeps them: they are the rarest of the eight.
 import collections
 import concurrent.futures
+import hashlib
 import json
 import os
 import random
@@ -27,6 +28,12 @@ SETS = {
     "c8": ({1: 0, 2: 1, 3: 2, 4: 3, 6: 4, 8: 5, 17: 6, 18: 7},
            ["person", "bicycle", "car", "motorcycle", "bus", "truck", "cat", "dog"]),
     "pv": ({1: 0, 2: 1, 3: 1, 4: 1, 6: 1, 8: 1}, ["person", "vehicle"]),
+}
+# The annotations every set is built from, pinned: a copy that differs would
+# change what is trained on without anything else noticing.
+ANNOTATIONS = {
+    "instances_train2017.json": "610fce4944abdeb15354cc765333805529359d12d88f2f711393ca586901d01d",
+    "instances_val2017.json": "e8c7f7908f1d7278341fae127d0da654f102f11bd7b21d8aeefa635b8c810b6f",
 }
 PETS = {17, 18}
 PETS_REPEAT, BACKGROUND, SEED = 3, 6000, 0
@@ -48,6 +55,20 @@ def fetch(url, path):
         except OSError:
             pass
     raise SystemExit(f"cannot fetch {url}")
+
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_annotations(path):
+    want = ANNOTATIONS[os.path.basename(path)]
+    if sha256(path) != want:
+        sys.exit(f"{path} is not the COCO 2017 release's (sha256 should be {want})")
 
 
 def ensure_val():
@@ -126,9 +147,23 @@ def build(split, ann, dirs, train):
 
 
 ensure_val()
+check_annotations(f"{coco}/instances_train2017.json")
+check_annotations(f"{coco}/annotations/instances_val2017.json")
 build("train2017", f"{coco}/instances_train2017.json",
       [f"{coco}/train2017", f"{coco}/train2017_extra"], True)
 build("val2017", f"{coco}/annotations/instances_val2017.json", [f"{coco}/val2017"], False)
+
+# What was trained and validated on, image by image: published with the
+# checkpoint (run.sh), so a release can be tied to its exact inputs even though
+# the images themselves are fetched rather than pinned one by one.
+listed = []
+for split in ("train2017", "val2017"):
+    listed += sorted({l.strip() for l in open(f"{out}/{split}.txt") if l.strip()})
+with open(f"{out}/inputs.sha256", "w") as mf:
+    with concurrent.futures.ThreadPoolExecutor(8) as ex:
+        for rel, h in zip(listed, ex.map(lambda r: sha256(f"{out}/{r}"), listed)):
+            mf.write(f"{h}  {rel[2:]}\n")
+print(f"inputs.sha256: {len(listed)} images")
 
 # val2017 with all 80 classes, so evaluate.py can score an 80-class reference
 # (the stock SiLU model) on the very same images and boxes.

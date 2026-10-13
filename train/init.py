@@ -19,6 +19,7 @@ NAMES = ["person", "bicycle", "car", "motorcycle", "bus", "truck", "cat", "dog"]
 
 src, out = sys.argv[1:3]
 if src.endswith(".yaml"):
+    torch.manual_seed(0)  # the same starting weights on every run
     y = YOLO(src)
     names = sys.argv[3].split(",")
     nc = y.model.yaml["nc"]
