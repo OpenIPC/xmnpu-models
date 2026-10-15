@@ -7,8 +7,10 @@ Object detectors compiled for the NPU of the GK7205V500/V510/V530 (the XMedia
 |---|---|---|---|
 | `yolov8n.xmm` | 640x384 NV21 | person, bicycle, car, motorcycle, bus, truck, cat, dog | 46-50 ms |
 | `yolov8s.xmm` | 640x384 NV21 | same | 102-112 ms |
+| `pvdn.xmm` | 640x352 NV21 | person, vehicle (bicycle, car, motorcycle, bus and truck as one) | 18 ms |
 
-Each is YOLOv8 (Ultralytics, COCO) without its decode/NMS head: two uint8
+The YOLOv8 models are Ultralytics' COCO ones; pvdn is trained here (see
+Training). Each is exported without its decode/NMS head: two uint8
 inputs, the Y and VU planes of an NV21 frame (BT.709 limited range, converted
 to RGB inside the model), and six uint8 outputs, a 64-channel DFL box map and a
 class map per stride (8, 16, 32). The class channels are the COCO classes in
@@ -25,9 +27,11 @@ C-model, which is bit-exact with the hardware -- next to the FP32 model's on the
 same pixels. The workflow fails, and publishes nothing, if an int8 detection
 and an FP32 one at 0.5 or more do not match each other (same class, IoU 0.6).
 
-Each model also comes with `<model>.json`, installed beside it, which is what
-majestic's three object-detection presets mean for that model: per class
-(human, vehicle, animal), the threshold for
+Each model also comes with `<model>.json`, installed beside it. Its
+`classes` list says what each class channel is to majestic (`human`,
+`vehicle`, `animal`), in channel order, so a two-class model is read as one;
+its `presets` are what majestic's three object-detection presets mean for that
+model: per class, the threshold for
 
 - `balanced`: the F1-optimal one;
 - `fewerFalseAlarms`: the F0.5 optimum (precision weighted);
