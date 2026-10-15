@@ -77,7 +77,7 @@ def fetch(url, path):
                     raise OSError(f"short read: {f.tell()} of {want} bytes")
             os.replace(path + ".part", path)
             return 1
-        except OSError:
+        except (OSError, ValueError):  # ValueError: a garbled Content-Length
             time.sleep(2 * (i + 1))
     raise SystemExit(f"cannot fetch {url}")
 

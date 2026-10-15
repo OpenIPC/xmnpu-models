@@ -78,7 +78,7 @@ def fetch(key, path, sha=None):
                 raise OSError("sha256 mismatch")
             os.replace(path + ".part", path)
             return
-        except OSError:
+        except (OSError, ValueError):  # ValueError: a garbled Content-Length
             time.sleep(2 * (i + 1))
     raise SystemExit(f"cannot fetch {key}")
 
