@@ -33,8 +33,10 @@
 import gzip
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,13 +59,17 @@ def camera(clip):
 def fetch(key, path, sha=None):
     if not (os.path.exists(path) and os.path.getsize(path)):
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        for _ in range(3):
+        # A timeout per socket operation, as dataset.py's fetch has: a stalled
+        # connection fails and is tried again rather than holding the build.
+        for i in range(5):
             try:
-                urllib.request.urlretrieve(f"{BUCKET}/{key}", path + ".part")
+                with urllib.request.urlopen(f"{BUCKET}/{key}", timeout=60) as r, \
+                        open(path + ".part", "wb") as f:
+                    shutil.copyfileobj(r, f, 1 << 20)
                 os.replace(path + ".part", path)
                 break
             except OSError:
-                pass
+                time.sleep(2 * (i + 1))
         else:
             raise SystemExit(f"cannot fetch {key}")
     if sha:
