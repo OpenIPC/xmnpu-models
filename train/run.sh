@@ -3,8 +3,9 @@
 # train/run.sh import <model> <run-dir> <out-dir>
 #
 # Fine-tunes a COCO YOLOv8 (yolov8n, yolov8s) with LeakyReLU activations and
-# the camera's eight classes, or trains pvdn (train/pvdn.yaml: person and
-# vehicle) from scratch, or takes a run already made on this host (import);
+# the camera's eight classes, or trains pvdn (person and vehicle: from the
+# checkpoint sources.txt pins, else from scratch, train/pvdn.yaml), or takes a
+# run already made on this host (import);
 # then evaluates it and writes what a release carries to <out-dir>: the
 # checkpoint (<model>-lrelu-c8.pt, or pvdn.pt), results.csv, args.yaml,
 # inputs.sha256.gz (every image trained and validated on), eval.md and
@@ -36,7 +37,19 @@ py="$work/venv/bin/python"
 case $model in
 pvdn)
 	set_=pv data=$work/pv/pv.yaml ckpt=pvdn.pt ref=
-	init() { "$py" "$src/train/init.py" "$src/train/pvdn.yaml" "$1" person,vehicle; }
+	# From the checkpoint sources.txt pins, when it pins one: a fine-tune of
+	# the released model on what has been added since. From scratch
+	# (train/pvdn.yaml) only when there is none.
+	start=$(awk '$1 == "pvdn.pt" { print $2, $3 }' "$src/sources.txt")
+	if [ -n "$start" ]; then
+		read -r sha url <<< "$start"
+		[ -f "$work/cache/pvdn-start.pt" ] && echo "$sha  $work/cache/pvdn-start.pt" | sha256sum -c --quiet ||
+			curl -sfL -o "$work/cache/pvdn-start.pt" "$url"
+		echo "$sha  $work/cache/pvdn-start.pt" | sha256sum -c --quiet
+		init() { cp "$work/cache/pvdn-start.pt" "$1"; }
+	else
+		init() { "$py" "$src/train/init.py" "$src/train/pvdn.yaml" "$1" person,vehicle; }
+	fi
 	;;
 *)
 	set_=c8 data=$work/coco8/coco8.yaml ckpt=$model-lrelu-c8.pt ref=$work/cache/$model.pt

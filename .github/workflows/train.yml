@@ -51,6 +51,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Into the host's TRAIN_WORK rather than the workspace: the publish job
+      # below checks out afresh, which cleans the workspace.
       - name: Fine-tune or import
         env:
           MODE: ${{ inputs.mode }}
@@ -58,19 +60,33 @@ jobs:
           EPOCHS: ${{ inputs.epochs }}
           BATCH: ${{ inputs.batch }}
           RUN_DIR: ${{ inputs.run_dir }}
+          OUT: ${{ env.TRAIN_WORK }}/out/${{ github.run_id }}
         run: |
-          rm -rf out
+          rm -rf "$OUT"
           if [ "$MODE" = import ]; then
-            bash train/run.sh import "$MODEL" "$RUN_DIR" out
+            bash train/run.sh import "$MODEL" "$RUN_DIR" "$OUT"
           else
-            bash train/run.sh train "$MODEL" "$EPOCHS" "$BATCH" out
+            bash train/run.sh train "$MODEL" "$EPOCHS" "$BATCH" "$OUT"
           fi
+
+  # A job of its own, for its own token. A job's GITHUB_TOKEN lasts 24 hours,
+  # and pvdn from scratch trains for longer: pvdn-v1's training job reached
+  # this step after 37 hours, its release request was refused, and the run had
+  # to be imported to be published.
+  publish:
+    needs: train
+    runs-on: [self-hosted, spark, gpu]
+    env:
+      OUT: /home/dima/xmnpu-train/out/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: |
+          rm -rf out && ln -s "$OUT" out
           {
             echo "${{ inputs.mode }} of ${{ inputs.model }} by run ${{ github.run_id }} from ${{ github.sha }}."
             echo

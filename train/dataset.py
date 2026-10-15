@@ -14,6 +14,13 @@
 # COCO's person images (as the lab's does) otherwise leaves a model with 17%
 # of the cats and no background at all. Images with a cat or a dog are listed
 # PETS_REPEAT times where the set keeps them: they are the rarest of the eight.
+#
+# The person/vehicle set also lists every train image with a fire hydrant, a
+# stop sign or a parking meter HARD_REPEAT times, whether or not it holds a
+# person or a vehicle: a person/vehicle model took a red hydrant in a car park
+# for a person in every frame of a held-out camera (pvdn-v1), and those three
+# are the street furniture COCO names. Their people and vehicles stay labelled
+# -- COCO labels every person -- and the object itself is background.
 import collections
 import concurrent.futures
 import hashlib
@@ -37,6 +44,8 @@ ANNOTATIONS = {
 }
 PETS = {17, 18}
 PETS_REPEAT, BACKGROUND, SEED = 3, 6000, 0
+HARD = {11, 13, 14}  # fire hydrant, stop sign, parking meter
+HARD_SETS, HARD_REPEAT = {"pv"}, 2
 URL = "http://images.cocodataset.org"
 
 coco, out = (os.path.abspath(os.path.expanduser(p)) for p in sys.argv[1:3])
@@ -84,7 +93,7 @@ def build(split, ann, dirs, train):
     by_img = collections.defaultdict(list)
     for a in d["annotations"]:
         by_img[a["image_id"]].append(a)
-    on_disk = {}
+    on_disk, hard = {}, set()
     for sd in dirs:
         if os.path.isdir(sd):
             for f in os.listdir(sd):
@@ -103,6 +112,9 @@ def build(split, ann, dirs, train):
         pool = sorted(imgs[i]["file_name"] for i in imgs if not has[i] & c8)
         bg = set(random.Random(SEED).sample(pool, BACKGROUND))
         need += sorted(f for f in bg if f not in on_disk)
+        if kind in HARD_SETS:
+            hard = {imgs[i]["file_name"] for i in imgs if has[i] & HARD}
+            need += sorted(f for f in hard - bg if f not in on_disk and f not in need)
         extra = f"{coco}/{split}_extra"
         os.makedirs(extra, exist_ok=True)
         with concurrent.futures.ThreadPoolExecutor(16) as ex:
@@ -113,7 +125,7 @@ def build(split, ann, dirs, train):
     img_dir, lab_dir = f"{out}/images/{split}", f"{out}/labels/{split}"
     os.makedirs(img_dir, exist_ok=True)
     os.makedirs(lab_dir, exist_ok=True)
-    listed, pets, n_bg = [], 0, 0
+    listed, pets, n_bg, n_hard = [], 0, 0, 0
     for i, im in sorted(imgs.items()):
         f = im["file_name"]
         if f not in on_disk:
@@ -126,7 +138,8 @@ def build(split, ann, dirs, train):
             W, H = im["width"], im["height"]
             rows.append(f"{remap[a['category_id']]} {(x + w / 2) / W:.6f} "
                         f"{(y + h / 2) / H:.6f} {w / W:.6f} {h / H:.6f}")
-        if train and not rows and f not in bg:
+        is_hard = train and f in hard
+        if train and not rows and f not in bg and not is_hard:
             continue  # only the fixed background sample stands in for "nothing"
         if not os.path.lexists(f"{img_dir}/{f}"):
             os.symlink(on_disk[f], f"{img_dir}/{f}")
@@ -135,15 +148,18 @@ def build(split, ann, dirs, train):
         entry = f"./images/{split}/{f}"
         is_pet = any(a["category_id"] in PETS & set(remap)
                      for a in by_img[i] if not a.get("iscrowd"))
-        listed += [entry] * (PETS_REPEAT if train and is_pet else 1)
+        listed += [entry] * (PETS_REPEAT if train and is_pet
+                             else HARD_REPEAT if is_hard else 1)
         pets += is_pet
+        n_hard += is_hard
         n_bg += not rows
     if train:
         random.Random(SEED).shuffle(listed)
     with open(f"{out}/{split}.txt", "w") as lf:
         lf.write("\n".join(listed) + "\n")
-    print(f"{split}: {len(set(listed))} images ({pets} with a cat or dog, {n_bg} "
-          f"background), {len(listed)} listed")
+    print(f"{split}: {len(set(listed))} images ({pets} with a cat or dog, {n_hard} "
+          f"with a hydrant, stop sign or parking meter, {n_bg} background), "
+          f"{len(listed)} listed")
 
 
 ensure_val()
