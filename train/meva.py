@@ -79,7 +79,8 @@ def fetch(key, path, sha=None):
             os.replace(path + ".part", path)
             return
         except (OSError, ValueError):  # ValueError: a garbled Content-Length
-            time.sleep(min(60, 2 << i))  # as dataset.py's backoff
+            if i < 9:  # not after the last: nothing follows it
+                time.sleep(min(60, 2 << i))  # as dataset.py's backoff
     raise SystemExit(f"cannot fetch {key}")
 
 

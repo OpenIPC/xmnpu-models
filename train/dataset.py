@@ -87,7 +87,8 @@ def fetch(url, path):
             os.replace(path + ".part", path)
             return 1
         except (OSError, ValueError):  # ValueError: a garbled Content-Length
-            time.sleep(backoff(i))
+            if i + 1 < FETCH_TRIES:  # not after the last: nothing follows it
+                time.sleep(backoff(i))
     raise SystemExit(f"cannot fetch {url}")
 
 
