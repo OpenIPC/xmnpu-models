@@ -73,6 +73,11 @@ jobs:
   # and pvdn from scratch trains for longer: pvdn-v1's training job reached
   # this step after 37 hours, its release request was refused, and the run had
   # to be imported to be published.
+  #
+  # It reads the training job's output from the host, so it has to run on the
+  # same one: these labels name a single runner, the Spark. A second runner
+  # with them would need the output carried as an artifact instead, and the
+  # check below says so rather than publishing an empty release.
   publish:
     needs: train
     runs-on: [self-hosted, spark, gpu]
@@ -86,6 +91,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
         run: |
+          [ -f "$OUT/eval.md" ] || { echo "no training output at $OUT on $(hostname): this job ran on another runner than the training job"; exit 1; }
           rm -rf out && ln -s "$OUT" out
           {
             echo "${{ inputs.mode }} of ${{ inputs.model }} by run ${{ github.run_id }} from ${{ github.sha }}."
