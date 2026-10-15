@@ -66,7 +66,7 @@ def fetch(key, path, sha=None):
     # connection fails and is tried again rather than holding the build. A
     # download is checked -- its length, and its hash when pinned -- before
     # it is installed, so a cut-off one is fetched again rather than cached.
-    for i in range(5):
+    for i in range(10):
         try:
             with urllib.request.urlopen(f"{BUCKET}/{key}", timeout=60) as r, \
                     open(path + ".part", "wb") as f:
@@ -79,7 +79,7 @@ def fetch(key, path, sha=None):
             os.replace(path + ".part", path)
             return
         except (OSError, ValueError):  # ValueError: a garbled Content-Length
-            time.sleep(2 * (i + 1))
+            time.sleep(min(60, 2 << i))  # as dataset.py's backoff
     raise SystemExit(f"cannot fetch {key}")
 
 

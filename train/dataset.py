@@ -37,7 +37,16 @@ import urllib.request
 # tried again. urlretrieve has no timeout at all -- sixteen fetch threads once
 # sat for an hour on connections that had stopped mid-file, and the training
 # job behind them would have waited out its three days.
-FETCH_TIMEOUT, FETCH_TRIES = 60, 5
+#
+# The waits between tries double up to a minute, so the tries span about a
+# quarter of an hour: images.cocodataset.org goes quiet for several minutes at
+# a time under a long fetch, and five tries a few seconds apart (five and a
+# half minutes in all) were used up inside one such spell.
+FETCH_TIMEOUT, FETCH_TRIES = 60, 10
+
+
+def backoff(i):
+    return min(60, 2 << i)
 
 # COCO-91 id -> output class, and the output classes' names, per set.
 SETS = {
@@ -78,7 +87,7 @@ def fetch(url, path):
             os.replace(path + ".part", path)
             return 1
         except (OSError, ValueError):  # ValueError: a garbled Content-Length
-            time.sleep(2 * (i + 1))
+            time.sleep(backoff(i))
     raise SystemExit(f"cannot fetch {url}")
 
 
