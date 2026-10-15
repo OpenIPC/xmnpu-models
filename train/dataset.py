@@ -70,6 +70,11 @@ def fetch(url, path):
             with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT) as r, \
                     open(path + ".part", "wb") as f:
                 shutil.copyfileobj(r, f)
+                # A connection closed early is an EOF, not an error: without
+                # this the cut-off image would be cached as a whole one.
+                want = r.headers.get("Content-Length")
+                if want is not None and f.tell() != int(want):
+                    raise OSError(f"short read: {f.tell()} of {want} bytes")
             os.replace(path + ".part", path)
             return 1
         except OSError:
