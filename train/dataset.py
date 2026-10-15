@@ -27,8 +27,17 @@ import hashlib
 import json
 import os
 import random
+import shutil
 import sys
+import time
 import urllib.request
+
+# Per socket operation, not per file: a download that is moving, however
+# slowly, is never cut off, and one whose server has gone quiet fails and is
+# tried again. urlretrieve has no timeout at all -- sixteen fetch threads once
+# sat for an hour on connections that had stopped mid-file, and the training
+# job behind them would have waited out its three days.
+FETCH_TIMEOUT, FETCH_TRIES = 60, 5
 
 # COCO-91 id -> output class, and the output classes' names, per set.
 SETS = {
@@ -56,13 +65,20 @@ remap, NAMES = SETS[kind]
 def fetch(url, path):
     if os.path.exists(path) and os.path.getsize(path):
         return 0
-    for _ in range(3):
+    for i in range(FETCH_TRIES):
         try:
-            urllib.request.urlretrieve(url, path + ".part")
+            with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT) as r, \
+                    open(path + ".part", "wb") as f:
+                shutil.copyfileobj(r, f)
+                # A connection closed early is an EOF, not an error: without
+                # this the cut-off image would be cached as a whole one.
+                want = r.headers.get("Content-Length")
+                if want is not None and f.tell() != int(want):
+                    raise OSError(f"short read: {f.tell()} of {want} bytes")
             os.replace(path + ".part", path)
             return 1
-        except OSError:
-            pass
+        except (OSError, ValueError):  # ValueError: a garbled Content-Length
+            time.sleep(2 * (i + 1))
     raise SystemExit(f"cannot fetch {url}")
 
 

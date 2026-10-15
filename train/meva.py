@@ -33,8 +33,10 @@
 import gzip
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,24 +57,30 @@ def camera(clip):
 
 
 def fetch(key, path, sha=None):
-    if not (os.path.exists(path) and os.path.getsize(path)):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        for _ in range(3):
-            try:
-                urllib.request.urlretrieve(f"{BUCKET}/{key}", path + ".part")
-                os.replace(path + ".part", path)
-                break
-            except OSError:
-                pass
-        else:
-            raise SystemExit(f"cannot fetch {key}")
-    if sha:
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for b in iter(lambda: f.read(1 << 20), b""):
-                h.update(b)
-        if h.hexdigest() != sha:
-            raise SystemExit(f"{path}: sha256 {h.hexdigest()}, want {sha}")
+    if os.path.exists(path) and os.path.getsize(path):
+        if not sha or file_sha256(path) == sha:
+            return
+        os.remove(path)  # cut off by an older run: fetch it again
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    # A timeout per socket operation, as dataset.py's fetch has: a stalled
+    # connection fails and is tried again rather than holding the build. A
+    # download is checked -- its length, and its hash when pinned -- before
+    # it is installed, so a cut-off one is fetched again rather than cached.
+    for i in range(5):
+        try:
+            with urllib.request.urlopen(f"{BUCKET}/{key}", timeout=60) as r, \
+                    open(path + ".part", "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+                want = r.headers.get("Content-Length")
+                if want is not None and f.tell() != int(want):
+                    raise OSError(f"short read: {f.tell()} of {want} bytes")
+            if sha and file_sha256(path + ".part") != sha:
+                raise OSError("sha256 mismatch")
+            os.replace(path + ".part", path)
+            return
+        except (OSError, ValueError):  # ValueError: a garbled Content-Length
+            time.sleep(2 * (i + 1))
+    raise SystemExit(f"cannot fetch {key}")
 
 
 def frames(path):
