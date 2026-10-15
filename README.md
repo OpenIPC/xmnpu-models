@@ -49,8 +49,9 @@ only, on the self-hosted GPU runner, and published as releases of their own
 - `yolov8n`, `yolov8s`: COCO YOLOv8 fine-tuned with LeakyReLU(0.1) in place of
   SiLU -- the NPU fuses it into the convolution, where SiLU costs a pass of
   its own -- and cut to the eight classes above.
-- `pvdn` (`train/pvdn.yaml`): a person/vehicle detector trained from scratch,
-  640x352. Its body is the layout of the person/vehicle model camera vendors
+- `pvdn` (`train/pvdn.yaml`): a person/vehicle detector, 640x352, trained
+  from scratch for pvdn-v1 and fine-tuned from the checkpoint `sources.txt`
+  pins since. Its body is the layout of the person/vehicle model camera vendors
   ship for customer counting on these SoCs -- a slimmed YOLOv5n: a stride-4
   stem, C3 stages of 32/64/120/232 channels, SPPF, a PAN neck -- with
   YOLOv8's head, so it is built, gated and decoded like the others. Two
@@ -68,6 +69,13 @@ only, on the self-hosted GPU runner, and published as releases of their own
   the same merge, not boxes checked by hand, so that table measures how well a
   model agrees with them on cameras it never trained on, not whether it finds
   people the teacher missed.
+
+  Every COCO training image with a fire hydrant, a stop sign or a parking
+  meter is listed twice for it: pvdn-v1 took a red hydrant in the held-out car
+  park for a person in nearly every frame. Mining such objects from MEVA's
+  own frames was tried and dropped: its labels miss some people (a seated gym
+  audience the teacher does not see either), and repeating a frame repeats
+  them as background.
 
 ### Training data
 
