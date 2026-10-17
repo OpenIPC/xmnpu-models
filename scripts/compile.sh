@@ -26,7 +26,7 @@ export XM_CALIB_OUTPUT_MINMAX=8
 # with it; sanitize.py zeroes every byte where the two differ.
 xmtvmc() { setarch "$(uname -m)" -R "$venv/bin/xmtvmc" "$@"; }
 
-grep -v '^#' "$src/models.txt" | while read -r name weights h w keep; do
+grep -v '^#' "$src/models.txt" | while read -r name weights h w keep groups; do
 	[ -n "$name" ] || continue
 	work=$out/work/$name && rm -rf "$work" && mkdir -p "$work" && cd "$work"
 	cat > cfg.yaml <<-Y

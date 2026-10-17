@@ -4,4 +4,4 @@ yolov8s.pt   1f47a78bf100391c2a140b7ac73a1caae18c32779be7d310658112f7ac9aa78a  h
 coco128.zip  61e5e3028863d8ffc3b81d6a514603954889f0edd5e4b44c4ce60b2da99aeb8e  https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip
 yolov8n-lrelu-c8.pt  243eadf6ef6dd577372c5a6daf365ec595d13f1e61cdd7e77854b6556fd333f2  https://github.com/OpenIPC/xmnpu-models/releases/download/yolov8n-lrelu-c8-v1/yolov8n-lrelu-c8.pt
 yolov8s-lrelu-c8.pt  2547b8c2d5aeddb15d4ec4a99d4083a99181203ddd51d8766c04b94fdc46ef1a  https://github.com/OpenIPC/xmnpu-models/releases/download/yolov8s-lrelu-c8-v1/yolov8s-lrelu-c8.pt
-pvdn.pt  04c7f887b9c30db35133908310864378a3b7ab3c8f90404a4d015d73d62ac922  https://github.com/OpenIPC/xmnpu-models/releases/download/pvdn-v1/pvdn.pt
+pvdn.pt  20d131e396837d81d2b35f08509d13b7b74d97a2a05ad2d9a51a7ae0480d71a7  https://github.com/OpenIPC/xmnpu-models/releases/download/pvdn-v2/pvdn.pt

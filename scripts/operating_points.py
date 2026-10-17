@@ -1,8 +1,8 @@
-# operating_points.py <instances_val2017.json> <dets> <out.json> [<out.md>]
+# operating_points.py <instances_val2017.json> <dets> <out.json> <out.md> <W> <H> <groups>
 #
 # The thresholds behind majestic's three object-detection presets, measured
 # for one model. <dets> is one detection per line, "<image id> x1 y1 x2 y2
-# score class" in network-input pixels (640x384, the picture stretched into
+# score class" in network-input pixels (W x H, the picture stretched into
 # it, as the camera does), class being the model's channel index -- what
 # npu_eval prints on the camera and sim_dets.py prints from the int8 model's
 # x86 build. Those are suppressed at IoU 0.7, the mAP convention; this applies
@@ -14,7 +14,9 @@
 # A person is told about people, vehicles and animals, not COCO's
 # categories, so a box counts as right when it overlaps a ground-truth box of
 # the same group (bicycle, car, motorcycle, bus and truck are all "vehicle")
-# by IoU 0.5. Matching is greedy by score, so the matches of the boxes above
+# by IoU 0.5. <groups> is what each of the model's channels is, in channel
+# order (models.txt's last column): an 8-channel COCO model names its five
+# vehicle channels "vehicle" five times, a person/vehicle model has two. Matching is greedy by score, so the matches of the boxes above
 # a threshold are the same whether or not lower ones exist, and one pass
 # gives exact precision and recall at every threshold. Crowd regions are
 # neither a hit nor a miss.
@@ -29,19 +31,18 @@
 #   catchEverything   the highest threshold with recall >= 0.90, else the
 #                     F2 optimum
 #
-# Writes {"presets": {preset: {group: threshold}}} for majestic to read
-# beside the model, and a table of what each preset achieves.
+# Writes {"classes": [group per channel], "presets": {preset: {group:
+# threshold}}} for majestic to read beside the model -- the classes are how
+# it knows what a channel means -- and a table of what each preset achieves.
 import json
 import sys
 from collections import defaultdict
 
 import numpy as np
 
-W, H = 640, 384
-COCO_IDS = [1, 2, 3, 4, 6, 8, 17, 18]  # the models' eight channels
+# COCO's categories as the groups majestic reports: the ground truth side.
 GROUP = {1: "human", 2: "vehicle", 3: "vehicle", 4: "vehicle", 6: "vehicle",
          8: "vehicle", 17: "animal", 18: "animal"}
-GROUPS = ["human", "vehicle", "animal"]
 IOU, NMS_IOU = 0.5, 0.45  # NMS as majestic's NPU backend does it, per class (ND_NMS_IOU)
 THRESHOLDS = np.round(np.arange(0.05, 0.96, 0.01), 2)
 PRESETS = ["fewerFalseAlarms", "balanced", "catchEverything"]
@@ -69,14 +70,17 @@ def nms(dets):
     return kept
 
 
-def main(ann_path, det_path, out_json, out_md=None):
+def main(ann_path, det_path, out_json, out_md, w, h, groups):
+    W, H = int(w), int(h)
+    CHANNEL = groups.split(",")  # channel -> group
+    GROUPS = [g for g in ["human", "vehicle", "animal"] if g in CHANNEL]
     ann = json.load(open(ann_path))
     size = {im["id"]: (im["width"], im["height"]) for im in ann["images"]}
     gt = defaultdict(lambda: defaultdict(list))     # image -> group -> boxes
     crowd = defaultdict(lambda: defaultdict(list))
     for a in ann["annotations"]:
         g = GROUP.get(a["category_id"])
-        if not g:
+        if g not in GROUPS:
             continue
         x, y, w, h = a["bbox"]
         (crowd if a["iscrowd"] else gt)[a["image_id"]][g].append((x, y, x + w, y + h))
@@ -99,7 +103,7 @@ def main(ann_path, det_path, out_json, out_md=None):
     for iid in size:
         kept = nms(dets.get(iid, []))
         for g in GROUPS:
-            mine = sorted((d for d in kept if GROUP[COCO_IDS[d[5]]] == g),
+            mine = sorted((d for d in kept if 0 <= d[5] < len(CHANNEL) and CHANNEL[d[5]] == g),
                           key=lambda d: -d[4])
             truth = np.array(gt[iid][g]).reshape(-1, 4)
             crowds = np.array(crowd[iid][g]).reshape(-1, 4)
@@ -149,11 +153,13 @@ def main(ann_path, det_path, out_json, out_md=None):
             rows.append(f"| {g} | {name} | {t:.2f} | {p[i]:.3f} | {r[i]:.3f} | "
                         f"{2 * p[i] * r[i] / max(p[i] + r[i], 1e-9):.3f} | {fpi:.4f} |")
 
-    json.dump({"presets": presets}, open(out_json, "w"), indent=1, sort_keys=True)
+    json.dump({"classes": CHANNEL, "presets": presets}, open(out_json, "w"), indent=1,
+              sort_keys=True)
+    counts = ", ".join(f"{npos[g]} {dict(human='people', vehicle='vehicles', animal='animals')[g]}"
+                       for g in GROUPS)
     table = "\n".join([
-        f"COCO val2017, {len(size)} images ({len(empty_images)} with none of the "
-        f"eight classes); ground truth: {npos['human']} people, "
-        f"{npos['vehicle']} vehicles, {npos['animal']} animals.",
+        f"COCO val2017, {len(size)} images ({len(empty_images)} with none of "
+        f"{', '.join(GROUPS)}); ground truth: {counts}.",
         "",
         "| class | preset | threshold | precision | recall | F1 | false alarms per empty image |",
         "|---|---|---|---|---|---|---|"] + rows) + "\n"
