@@ -15,7 +15,7 @@
 # eight classes of 45.6 (stock 46.1) and 52.5 (stock 53.7).
 yolov8n    yolov8n-lrelu-c8.pt   384  640  0,1,2,3,4,5,6,7  human,vehicle,vehicle,vehicle,vehicle,vehicle,animal,animal
 yolov8s    yolov8s-lrelu-c8.pt   384  640  0,1,2,3,4,5,6,7  human,vehicle,vehicle,vehicle,vehicle,vehicle,animal,animal
-# pvdn (train/pvdn.yaml; release pvdn-v1): people and vehicles, trained from
-# scratch on COCO and MEVA's security-camera frames, at the counting cameras'
-# 640x352.
+# pvdn (train/pvdn.yaml; release pvdn-v2): people and vehicles at the counting
+# cameras' 640x352, on COCO and MEVA's security-camera frames -- v1 trained
+# from scratch, v2 fine-tuned from it with street-furniture hard negatives.
 pvdn       pvdn.pt               352  640  0,1              human,vehicle
